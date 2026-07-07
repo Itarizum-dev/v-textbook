@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMの仕組み Vol.5 — 限界と対策編:なぜ間違えるのか</title>
+<style>
+  :root {
+    --bg: #0b0e1c;
+    --panel: #12172e;
+    --panel2: #0e1326;
+    --ink: #e8ecf8;
+    --sub: #9aa3bf;
+    --blue: #58c4dd;
+    --deep-blue: #2f7ea8;
+    --yellow: #ffd35a;
+    --green: #6fe0a8;
+    --red: #ff7b72;
+    --purple: #c792ea;
+    --line: #232a4d;
+    --mono: "SFMono-Regular", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.9;
+    overflow-x: hidden;
+  }
+  #progress {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--yellow));
+    z-index: 99;
+  }
+  .series-nav {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+    padding: 12px 16px; font-size: .85rem;
+    background: rgba(18,23,46,.8); border-bottom: 1px solid var(--line);
+  }
+  .series-nav a { color: var(--blue); text-decoration: none; }
+  .series-nav a:hover { text-decoration: underline; }
+  .series-nav .current { color: var(--yellow); font-weight: 700; }
+  .series-nav .soon { color: #5b6482; }
+
+  /* ---------- hero ---------- */
+  #hero {
+    position: relative;
+    min-height: 74vh;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  #heroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-inner { position: relative; z-index: 1; padding: 40px 20px; }
+  .hero-inner .kicker { color: var(--yellow); font-weight: 700; letter-spacing: .3em; font-size: .85rem; }
+  .hero-inner h1 {
+    font-size: clamp(1.7rem, 5vw, 3rem);
+    margin: 14px 0 18px;
+    text-shadow: 0 0 30px rgba(88,196,221,.45);
+  }
+  .hero-inner p { color: var(--sub); max-width: 620px; margin: 0 auto; }
+  .hero-inner .scroll-hint { margin-top: 46px; color: var(--blue); font-size: .85rem; animation: bob 2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(8px);} }
+
+  /* ---------- scenes ---------- */
+  main { max-width: 900px; margin: 0 auto; padding: 0 18px 100px; }
+  .scene { margin-top: 90px; }
+  .chapter { color: var(--yellow); font-weight: 700; font-size: .9rem; letter-spacing: .2em; }
+  .scene h2 {
+    font-size: clamp(1.3rem, 3.4vw, 1.7rem);
+    margin: 8px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--line);
+  }
+  .scene > p { color: #c6cde3; max-width: 760px; }
+  .scene > p + p { margin-top: 8px; }
+  .scene em { font-style: normal; color: var(--yellow); font-weight: 700; }
+  .scene strong { color: var(--blue); }
+
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(rgba(88,196,221,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(88,196,221,.045) 1px, transparent 1px),
+      var(--panel);
+    background-size: 26px 26px, 26px 26px, auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.35);
+  }
+  .panel-title { font-size: .78rem; font-weight: 700; color: var(--purple); letter-spacing: .15em; margin-bottom: 14px; }
+  .note {
+    margin-top: 16px; padding: 12px 16px;
+    background: rgba(255,211,90,.07);
+    border-left: 3px solid var(--yellow);
+    border-radius: 6px;
+    font-size: .92rem; color: #d9dcef;
+  }
+  .note b { color: var(--yellow); }
+
+  button {
+    font-family: inherit; font-size: .92rem; font-weight: 700;
+    padding: 9px 20px; border-radius: 9px; cursor: pointer;
+    background: var(--blue); color: #06202b; border: none;
+    transition: transform .12s, box-shadow .12s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(88,196,221,.4); }
+  button:disabled { background: #3a4266; color: #8b93b5; cursor: default; transform: none; box-shadow: none; }
+  button.ghost { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+  button.on { background: var(--yellow); color: #3a2c00; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  input[type=range] { flex: 1; accent-color: var(--yellow); }
+  .slider-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+  .slider-row .lbl { font-size: .85rem; color: var(--sub); white-space: nowrap; }
+
+  /* ---------- bar chart ---------- */
+  .bchart .brow { display: flex; align-items: center; gap: 10px; margin: 7px 0; transition: opacity .4s; }
+  .bchart .blabel {
+    width: 148px; flex-shrink: 0; text-align: right;
+    font-family: var(--mono); font-size: .92rem; white-space: nowrap; overflow: hidden;
+  }
+  .bchart .btrack { flex: 1; height: 26px; background: rgba(255,255,255,.05); border-radius: 6px; overflow: hidden; position: relative; }
+  .bchart .bfill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--deep-blue), var(--blue));
+    border-radius: 6px;
+    transition: width .65s cubic-bezier(.25,.9,.3,1), background .3s;
+    box-shadow: 0 0 14px rgba(88,196,221,.25);
+  }
+  .bchart .brow.winner .bfill {
+    background: linear-gradient(90deg, #2f9e6e, var(--green));
+    box-shadow: 0 0 18px rgba(111,224,168,.5);
+  }
+  .bchart .brow.danger .bfill {
+    background: linear-gradient(90deg, #a8404a, var(--red));
+    box-shadow: 0 0 18px rgba(255,123,114,.45);
+  }
+  .bchart .bpct { position: absolute; right: 9px; top: 0; line-height: 26px; font-size: .74rem; font-weight: 700; color: #eaf7ff; }
+
+  /* ---------- §1 fabrication ---------- */
+  .fab-text {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 14px 18px; font-size: 1.05rem; line-height: 2.1; min-height: 4em; margin-bottom: 12px;
+  }
+  .fab-text .ftok {
+    display: inline-block; border-bottom: 2px solid rgba(255,123,114,.6);
+    animation: tokIn .45s cubic-bezier(.2,1.4,.4,1) both; margin: 0 1px; padding: 0 2px;
+  }
+  @keyframes tokIn { from { transform: translateY(10px) scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+  .fab-status { font-size: .88rem; color: var(--sub); min-height: 2em; margin-bottom: 10px; }
+  .fab-warn {
+    margin-top: 12px; padding: 12px 16px; border-radius: 8px;
+    background: rgba(255,123,114,.1); border: 1.5px solid rgba(255,123,114,.5);
+    font-size: .92rem; display: none;
+  }
+  .fab-warn b { color: var(--red); }
+  .fab-check { display: flex; gap: 18px; justify-content: center; margin-top: 12px; font-size: .95rem; }
+  .fab-check .ok { color: var(--green); }
+  .fab-check .ng { color: var(--red); }
+
+  /* ---------- §2 fame ---------- */
+  .risk-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .risk-track { flex: 1; height: 16px; background: rgba(255,255,255,.06); border-radius: 8px; overflow: hidden; }
+  .risk-fill { height: 100%; width: 0; border-radius: 8px; transition: width .5s, background .5s; }
+  .risk-label { font-size: .85rem; color: var(--sub); white-space: nowrap; }
+  .fame-caption { text-align: center; font-size: .95rem; font-weight: 700; color: var(--blue); min-height: 2em; margin: 8px 0 10px; }
+
+  /* ---------- §3 timeline ---------- */
+  .tl-wrap { position: relative; margin: 26px 0 8px; }
+  .tl-track { height: 12px; background: rgba(255,255,255,.06); border-radius: 6px; position: relative; overflow: hidden; }
+  .tl-known { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(47,126,168,.7), rgba(88,196,221,.7)); border-radius: 6px; }
+  .tl-cutoff {
+    position: absolute; top: -26px; transform: translateX(-50%);
+    font-size: .75rem; color: var(--yellow); white-space: nowrap;
+  }
+  .tl-cutoff::after { content: ""; display: block; width: 2px; height: 30px; background: var(--yellow); margin: 2px auto 0; }
+  .tl-years { display: flex; justify-content: space-between; font-size: .75rem; color: var(--sub); margin-top: 6px; font-family: var(--mono); }
+  .tl-answer {
+    margin-top: 14px; padding: 14px 16px; border-radius: 10px; font-size: .93rem;
+    border: 1.5px solid var(--line); background: var(--panel2); transition: border-color .3s;
+    min-height: 5em;
+  }
+  .tl-answer.ok { border-color: rgba(111,224,168,.5); }
+  .tl-answer.bad { border-color: rgba(255,123,114,.6); }
+  .tl-answer .q { color: var(--yellow); font-weight: 700; }
+
+  /* ---------- §4 RAG ---------- */
+  .rag-svg { display: block; width: 100%; max-width: 760px; margin: 0 auto 10px; }
+  .rag-box { fill: var(--panel2); stroke: #3a4266; stroke-width: 1.5; transition: all .3s; }
+  .rag-box.active { fill: rgba(88,196,221,.18); stroke: var(--blue); filter: drop-shadow(0 0 8px rgba(88,196,221,.6)); }
+  .rag-box.doc.active { fill: rgba(111,224,168,.15); stroke: var(--green); filter: drop-shadow(0 0 8px rgba(111,224,168,.6)); }
+  .rag-label { fill: var(--sub); font-size: 12.5px; transition: fill .3s; }
+  .rag-label.active { fill: var(--ink); font-weight: 700; }
+  .rag-arrow { stroke: #3a4266; stroke-width: 2; fill: none; }
+  .rag-answer {
+    padding: 14px 16px; border-radius: 10px; font-size: .93rem;
+    border: 1.5px solid var(--line); background: var(--panel2); min-height: 4.6em; transition: border-color .3s;
+  }
+  .rag-answer.good { border-color: rgba(111,224,168,.55); }
+  .rag-answer.risky { border-color: rgba(255,123,114,.6); }
+  .rag-status { font-size: .88rem; color: var(--sub); min-height: 2em; margin: 10px 0; }
+
+  /* ---------- §5 quiz ---------- */
+  .quiz-card {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 6px;
+  }
+  .quiz-card .qnum { font-size: .75rem; color: var(--purple); font-weight: 700; letter-spacing: .1em; }
+  .quiz-card .qtext { font-size: 1.02rem; font-weight: 700; margin: 6px 0 12px; }
+  .quiz-fb { font-size: .9rem; min-height: 3em; margin-top: 12px; color: #d9dcef; }
+  .quiz-fb b.good { color: var(--green); }
+  .quiz-fb b.bad { color: var(--red); }
+  .quiz-score { text-align: center; font-size: 1rem; font-weight: 700; color: var(--yellow); min-height: 2em; margin-top: 10px; }
+
+  /* ---------- summary ---------- */
+  table.myth { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .92rem; }
+  table.myth th, table.myth td { border: 1px solid var(--line); padding: 11px 14px; text-align: left; vertical-align: top; }
+  table.myth th { background: rgba(255,123,114,.08); color: var(--red); width: 40%; font-weight: 600; }
+  table.myth td { color: #cdd4ea; }
+  table.myth td b { color: var(--green); }
+
+  footer { text-align: center; color: #5b6482; font-size: .82rem; padding: 40px 0 60px; }
+  footer a { color: var(--blue); }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav class="series-nav">
+  <a href="index.html">シリーズ「LLMの仕組み」(目次)</a>
+  <a href="01-how-llm-works.html">① 推論編</a>
+  <a href="02-how-llm-learns.html">② 学習編</a>
+  <a href="03-how-llm-transformer.html">③ Transformer深掘り編</a>
+  <a href="04-how-llm-prompt.html">④ プロンプト編</a>
+  <span class="current">⑤ 限界と対策編(このページ)</span>
+  <a href="06-how-llm-apps.html">⑥ 活用編</a>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header id="hero">
+  <canvas id="heroCanvas"></canvas>
+  <div class="hero-inner">
+    <div class="kicker">VISUAL GUIDE — VOL.5</div>
+    <h1>AIはなぜ、堂々と<br>間違えるのか</h1>
+    <p>存在しない本を紹介し、架空の判例を引用する——ハルシネーションはバグではなく、仕組みから必然的に生まれる性質です。原因を理解し、対策を学びます。</p>
+    <div class="scroll-hint">▼ スクロールして始める</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ §1 ============ -->
+  <section class="scene" id="sc1">
+    <div class="chapter">§1 — 原因</div>
+    <h2>ハルシネーション:「自然さ」は採点されるが「真実」は直接採点されない</h2>
+    <p>Vol.1で学んだとおり、LLMは「もっともらしい続き」を確率で選ぶ機械です。ここに重要な事実があります。<em>土台となる学習の採点基準は「文として自然か」であって、「真実か」を直接測る仕組みはそこにない</em>のです。知らないことを聞かれても、確率のくじ引きは止まらず、自然な文が作られ続けます。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:実在しない人物について質問すると何が起きるか</div>
+      <p style="font-size:.95rem;margin-bottom:10px;">質問:「<strong>山田太郎左衛門</strong>とはどんな人物ですか?」(架空の名前)</p>
+      <div class="fab-text" id="fabText"></div>
+      <div class="fab-status" id="fabStatus"></div>
+      <div class="bchart" id="fabBars"></div>
+      <div class="fab-check">
+        <span class="ok">✓ 文の自然さ:採点される</span>
+        <span class="ng">✗ 内容の真実性:直接の採点基準にはない</span>
+      </div>
+      <div class="fab-warn" id="fabWarn"><b>この経歴は完全な創作です。</b>しかし生成の各ステップを振り返ると、どの候補も「文として自然」でした。モデルは嘘をつこうとしたのではなく、いつも通り自然な続きを選んだだけ——これがハルシネーションの正体です。</div>
+      <div class="btn-row"><button id="fabBtn" onclick="fabStart()">▶ 生成を再生する</button></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>「知りません」と答えることもありますが、それは仕上げの学習(Vol.2のRLHF)でそう答える傾向を足しているためで、完全ではありません。土台が「続きを書く機械」であることは変わらないのです。</div>
+  </section>
+
+  <!-- ============ §2 ============ -->
+  <section class="scene" id="sc2">
+    <div class="chapter">§2 — 危険地帯</div>
+    <h2>記憶は「圧縮」されている:マイナーな事実ほど危ない</h2>
+    <p>Vol.2で学んだとおり、LLMの知識は丸暗記ではなく<strong>パターンの圧縮</strong>です。学習データに何百万回も登場した事実はくっきり残りますが、数回しか登場しなかった事実はぼやけています。<em>ぼやけた記憶ほど、確率の分布が割れて、誤答を引きやすくなります</em>。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:質問する事実の「有名度」を動かして、誤答リスクの変化を見る</div>
+      <div class="slider-row">
+        <span class="lbl">マイナーな事実<br>(データに数回)</span>
+        <input type="range" id="fameSlider" min="0" max="100" value="85">
+        <span class="lbl">超有名な事実<br>(数百万回)</span>
+      </div>
+      <div class="fame-caption" id="fameCaption"></div>
+      <div class="bchart" id="fameBars"></div>
+      <div class="risk-row">
+        <span class="risk-label">誤答リスク</span>
+        <div class="risk-track"><div class="risk-fill" id="riskFill"></div></div>
+        <span class="risk-label" id="riskText"></span>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>「日本の首都は?」ではまず間違えないのに、マイナーな人名・数値・出典で間違えやすいのはこのためです。<b>細かい固有名詞・数字・引用ほど疑う</b>——これが実践上の第一原則です。</div>
+  </section>
+
+  <!-- ============ §3 ============ -->
+  <section class="scene" id="sc3">
+    <div class="chapter">§3 — 時間の壁</div>
+    <h2>知識カットオフ:モデルの時計はある日で止まっている</h2>
+    <p>モデルの知識は、学習データを集めた<strong>締め切り日(知識カットオフ)</strong>までのものです。カットオフの時期はモデルごとに異なります(この図は2024年の例)。それ以降の出来事は存在ごと知りません。危険なのは、知らない期間について聞いても<em>§1の仕組みでそれらしい答えを作ってしまえる</em>ことです。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:質問する年をスライドして、答えの信頼性の変化を見る(例:カットオフが2024年のモデルの場合)</div>
+      <div class="tl-wrap">
+        <div class="tl-track">
+          <div class="tl-known" id="tlKnown"></div>
+          <div class="tl-cutoff" id="tlCutoff">カットオフ(例:2024)</div>
+        </div>
+        <div class="tl-years"><span>2018</span><span>2020</span><span>2022</span><span>2024</span><span>2026</span></div>
+      </div>
+      <div class="slider-row" style="margin-top:14px;">
+        <span class="lbl">質問する年</span>
+        <input type="range" id="yearSlider" min="2018" max="2026" step="1" value="2021">
+        <span class="lbl" id="yearVal" style="color:var(--yellow);font-weight:700;font-family:var(--mono);">2021</span>
+      </div>
+      <div class="tl-answer" id="tlAnswer"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>最近のAIサービスが最新ニュースに答えられるのは、モデル自体が新しいからではなく、<b>検索結果を文脈に入れている</b>からです。その仕組みが次のセクションのRAGです。</div>
+  </section>
+
+  <!-- ============ §4 ============ -->
+  <section class="scene" id="sc4">
+    <div class="chapter">§4 — 対策の本命</div>
+    <h2>RAG:答えの根拠を「窓」に入れてから書かせる</h2>
+    <p>ハルシネーション対策の代表が<strong>RAG(検索拡張生成)</strong>です。考え方はVol.4の応用で、とても単純です。<em>質問に関係する文書を先に検索し、コンテキストウィンドウに入れてから答えさせる</em>。あやふやな記憶ではなく、目の前の文書を読んで答える状態を作ります。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:RAGの有無で、同じ質問への答えがどう変わるか</div>
+      <div class="btn-row" style="justify-content:center;margin-bottom:14px;">
+        <button id="ragOffBtn" class="ghost" onclick="ragPlay(false)">RAGなしで質問</button>
+        <button id="ragOnBtn" class="ghost" onclick="ragPlay(true)">RAGありで質問</button>
+      </div>
+      <p style="font-size:.95rem;margin-bottom:10px;">質問:「<strong>この店の返品期限</strong>は何日ですか?」</p>
+      <svg id="ragSvg" class="rag-svg" viewBox="0 0 760 150"></svg>
+      <div class="rag-status" id="ragStatus">ボタンを押すと処理の流れが再生されます。</div>
+      <div class="rag-answer" id="ragAnswer"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>RAGでも「検索が外れる」「文書を読み間違える」ことはあり、万能ではありません。それでも<b>答えの根拠が特定でき、出典を示せる</b>ことが大きな違いです。計算は電卓、最新情報は検索——弱点は道具で補うのが現在の定石です。</div>
+  </section>
+
+  <!-- ============ §5 ============ -->
+  <section class="scene" id="sc5">
+    <div class="chapter">§5 — 実践</div>
+    <h2>判定トレーニング:その用途、検証は必要?</h2>
+    <p>仕組みが分かると、「AIに任せてよい場面」と「必ず検証すべき場面」を自分で判断できるようになります。判断軸は3つ——<strong>間違いのコスト</strong>、<strong>事実の正確さへの依存度</strong>、<strong>根拠が文脈に入っているか</strong>。5問で練習してみましょう。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:AIの使い方として、どちらが近いか選んでください</div>
+      <div class="quiz-card" id="quizCard">
+        <div class="qnum" id="quizNum"></div>
+        <div class="qtext" id="quizText"></div>
+        <div class="btn-row">
+          <button class="ghost" onclick="quizAnswer(0)">そのまま活用しやすい</button>
+          <button class="ghost" onclick="quizAnswer(1)">検証が必須</button>
+        </div>
+        <div class="quiz-fb" id="quizFb"></div>
+      </div>
+      <div class="quiz-score" id="quizScore"></div>
+      <div class="btn-row"><button class="ghost" onclick="quizReset()">最初からやり直す</button></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>「アイデア出し・下書き・要約」のような<b>創造・変換タスク</b>は得意分野。「固有名詞・数値・出典・専門判断」のような<b>事実タスク</b>は検証前提。この線引きを覚えておけば、大きな失敗は防げます。</div>
+  </section>
+
+  <!-- ============ §6 ============ -->
+  <section class="scene" id="sc6">
+    <div class="chapter">§6 — まとめ</div>
+    <h2>よくある誤解と、正しい理解</h2>
+    <table class="myth">
+      <tr><th>「AIが嘘をつくのはバグや悪意のせい」</th>
+          <td>バグでも悪意でもなく、<b>「自然な続き」を最適化する仕組みの副作用</b>。土台の仕組みには真実性を直接採点する部品がなく、仕上げの学習(Vol.2)や検索連携(§4)で補っている。</td></tr>
+      <tr><th>「自信満々な口調だから正しいはず」</th>
+          <td>流ちょうさと正確さは<b>別物</b>。文の自然さは常に高得点だが、それは内容の保証にならない。</td></tr>
+      <tr><th>「AIは最新の情報を知っている」</th>
+          <td>知識は<b>カットオフ日で停止</b>している。最新情報に答えられるのは、検索結果を文脈に入れる仕組み(RAG)のおかげ。</td></tr>
+      <tr><th>「いずれハルシネーションはゼロになる」</th>
+          <td>研究で大きく減ってはいるが、確率的生成である以上<b>完全な排除は難しい</b>。だからこそ根拠の提示(RAG)と人間の検証を組み合わせる。</td></tr>
+    </table>
+    <div class="note" style="margin-top:22px;"><b>今日のキーワード:</b>ハルシネーション / 知識の圧縮 / 知識カットオフ / RAG(検索拡張生成) / グラウンディング / 検証の3軸</div>
+  </section>
+
+</main>
+
+<footer>学習教材「LLMの仕組み」Vol.5 限界と対策編 ｜ 図中の確率・数値はすべて教材用に作成したものです ｜ <a href="index.html">目次へ</a></footer>
+
+<script>
+/* ================================================================
+   共通ユーティリティ
+   ================================================================ */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const visible = {};
+const io = new IntersectionObserver(
+  es => es.forEach(e => visible[e.target.id] = e.isIntersecting),
+  { threshold: 0.2 }
+);
+document.querySelectorAll(".scene, #hero").forEach(s => io.observe(s));
+
+function sampleFrom(probs) {
+  const r = Math.random();
+  let acc = 0;
+  for (const [w, p] of probs) { acc += p; if (r < acc) return w; }
+  return probs[probs.length - 1][0];
+}
+
+class BarChart {
+  constructor(container, n) {
+    this.rows = [];
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement("div");
+      row.className = "brow";
+      row.innerHTML = `<div class="blabel"></div>
+        <div style="flex:1"><div class="btrack"><div class="bfill"></div><span class="bpct"></span></div></div>`;
+      container.appendChild(row);
+      this.rows.push(row);
+    }
+  }
+  update(data, winnerLabel = null, dangerLabels = []) {
+    const maxP = Math.max(...data.map(d => d[1]), 1e-9);
+    this.rows.forEach((row, i) => {
+      if (i < data.length) {
+        const [w, p] = data[i];
+        row.style.opacity = 1;
+        row.querySelector(".blabel").textContent = w;
+        row.querySelector(".bfill").style.width = (p / maxP * 100) + "%";
+        row.querySelector(".bpct").textContent = p >= 0.005 ? (p * 100).toFixed(1) + "%" : "≈0%";
+        row.classList.toggle("winner", w === winnerLabel);
+        row.classList.toggle("danger", dangerLabels.includes(w));
+      } else {
+        row.style.opacity = 0;
+        row.classList.remove("winner", "danger");
+      }
+    });
+  }
+}
+
+/* ================================================================
+   HERO:安定した記憶と、ゆらぐ記憶
+   ================================================================ */
+(function heroMemory() {
+  const cv = document.getElementById("heroCanvas");
+  const ctx = cv.getContext("2d");
+  let W, H, cells = [];
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = r.width; H = r.height;
+    cells = [];
+    const cols = Math.floor(W / 46), rows = Math.floor(H / 46);
+    for (let i = 0; i < cols * rows; i++) {
+      cells.push({
+        x: (i % cols + 0.5) * 46, y: (Math.floor(i / cols) + 0.5) * 46,
+        stable: Math.random() < 0.72,     // 安定した記憶(有名な事実)
+        phase: Math.random() * 6.28,
+      });
+    }
+  }
+  fit();
+  window.addEventListener("resize", fit);
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible["hero"]) return;
+    ctx.clearRect(0, 0, W, H);
+    for (const c of cells) {
+      if (c.stable) {
+        ctx.fillStyle = "rgba(88,196,221,.35)";
+        ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, 6.28); ctx.fill();
+      } else {
+        // ゆらぐ記憶:明滅し、たまに赤(誤答のもと)
+        const f = Math.sin(now / 500 + c.phase);
+        if (f > -0.2) {
+          const red = f > 0.75;
+          ctx.fillStyle = red ? "rgba(255,123,114,.8)" : `rgba(255,211,90,${0.15 + f * 0.4})`;
+          ctx.shadowColor = ctx.fillStyle;
+          ctx.shadowBlur = red ? 10 : 4;
+          ctx.beginPath(); ctx.arc(c.x, c.y, red ? 4 : 3, 0, 6.28); ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ================================================================
+   §1:架空人物の経歴を生成
+   ================================================================ */
+const FAB_LM = {
+  "START": [["江戸時代の", 0.32], ["明治期の", 0.26], ["戦国時代の", 0.18], ["現代の", 0.12]],
+  "江戸時代の": [["剣術家で、", 0.30], ["商人で、", 0.28], ["蘭学者で、", 0.22], ["名主で、", 0.12]],
+  "明治期の": [["実業家で、", 0.35], ["政治家で、", 0.28], ["教育者で、", 0.20], ["軍人で、", 0.10]],
+  "戦国時代の": [["武将で、", 0.48], ["軍師で、", 0.28], ["商人で、", 0.14]],
+  "現代の": [["実業家で、", 0.42], ["作家で、", 0.30], ["研究者で、", 0.18]],
+  "剣術家で、": [["多くの弟子を育てた", 0.42], ["諸国を巡り修行した", 0.36]],
+  "商人で、": [["回船問屋を営んだ", 0.45], ["両替商として財を成した", 0.35]],
+  "蘭学者で、": [["医学書の翻訳に尽力した", 0.5], ["私塾を開いた", 0.38]],
+  "名主で、": [["治水事業に貢献した", 0.6]],
+  "実業家で、": [["紡績業で成功した", 0.44], ["銀行の設立に関わった", 0.34]],
+  "政治家で、": [["県政の発展に尽力した", 0.6]],
+  "教育者で、": [["女学校を設立した", 0.6]],
+  "軍人で、": [["若くして退役した", 0.6]],
+  "武将で、": [["城主として名を馳せた", 0.5], ["数々の合戦で活躍した", 0.4]],
+  "軍師で、": [["知略で知られた", 0.6]],
+  "作家で、": [["歴史小説を数多く著した", 0.6]],
+  "研究者で、": [["地方史の研究で知られる", 0.6]],
+};
+let fabRunning = false;
+const fabChart = new BarChart(document.getElementById("fabBars"), 4);
+
+async function fabStart() {
+  if (fabRunning) return;
+  fabRunning = true;
+  document.getElementById("fabBtn").disabled = true;
+  const textEl = document.getElementById("fabText");
+  const status = document.getElementById("fabStatus");
+  document.getElementById("fabWarn").style.display = "none";
+  textEl.innerHTML = "山田太郎左衛門は、";
+  let key = "START", step = 0;
+  while (FAB_LM[key] && step < 4) {
+    step++;
+    const probs = [...FAB_LM[key]].sort((a, b) => b[1] - a[1]);
+    status.textContent = "ステップ " + step + ":どの候補も「文として自然」——真実かどうかを直接測る採点はありません。";
+    fabChart.update(probs);
+    await sleep(1400);
+    const chosen = sampleFrom(probs);
+    fabChart.update(probs, chosen);
+    await sleep(600);
+    const span = document.createElement("span");
+    span.className = "ftok";
+    span.textContent = chosen;
+    textEl.appendChild(span);
+    key = chosen;
+    await sleep(300);
+  }
+  textEl.insertAdjacentHTML("beforeend", "人物とされています。");
+  status.textContent = "生成が完了しました。";
+  document.getElementById("fabWarn").style.display = "block";
+  document.getElementById("fabBtn").disabled = false;
+  fabRunning = false;
+}
+
+/* ================================================================
+   §2:有名度と誤答リスク
+   ================================================================ */
+const fameChart = new BarChart(document.getElementById("fameBars"), 4);
+
+function fameUpdate() {
+  const t = parseInt(document.getElementById("fameSlider").value) / 100;
+  const pCorrect = 0.24 + 0.72 * t;
+  const rest = 1 - pCorrect;
+  const data = [
+    ["正しい答え", pCorrect],
+    ["もっともらしい誤答A", rest * 0.45],
+    ["もっともらしい誤答B", rest * 0.33],
+    ["もっともらしい誤答C", rest * 0.22],
+  ];
+  fameChart.update(data, "正しい答え", t < 0.45 ? ["もっともらしい誤答A", "もっともらしい誤答B"] : []);
+  const risk = 1 - pCorrect;
+  const fill = document.getElementById("riskFill");
+  fill.style.width = (risk * 100) + "%";
+  fill.style.background = risk > 0.5 ? "linear-gradient(90deg,#a8404a,#ff7b72)"
+    : risk > 0.25 ? "linear-gradient(90deg,#b8860b,#ffd35a)"
+    : "linear-gradient(90deg,#2f9e6e,#6fe0a8)";
+  document.getElementById("riskText").textContent = (risk * 100).toFixed(0) + "%";
+  const cap = document.getElementById("fameCaption");
+  if (t > 0.75) cap.textContent = "例:「日本の首都は?」— 学習データに無数に登場。分布は正解に集中します。";
+  else if (t > 0.4) cap.textContent = "例:「日本で2番目に高い山は?」— そこそこ登場。正解が優勢ですが誤答も選ばれ得ます。";
+  else cap.textContent = "例:「ある地方都市の1985年の人口は?」— 登場はごくわずか。分布が割れ、くじ引きは危険地帯に。";
+}
+document.getElementById("fameSlider").addEventListener("input", fameUpdate);
+fameUpdate();
+
+/* ================================================================
+   §3:知識カットオフ
+   ================================================================ */
+const TL_START = 2018, TL_END = 2026, TL_CUTOFF = 2024;
+(function tlInit() {
+  const frac = (TL_CUTOFF - TL_START) / (TL_END - TL_START);
+  document.getElementById("tlKnown").style.width = (frac * 100) + "%";
+  document.getElementById("tlCutoff").style.left = (frac * 100) + "%";
+})();
+
+function tlUpdate() {
+  const y = parseInt(document.getElementById("yearSlider").value);
+  document.getElementById("yearVal").textContent = y;
+  const box = document.getElementById("tlAnswer");
+  if (y <= TL_CUTOFF) {
+    box.className = "tl-answer ok";
+    box.innerHTML = `<span class="q">質問:「${y}年の主な出来事を教えて」</span><br>
+      → この期間は学習データに含まれているため、モデルの記憶から答えられます(ただし§2のとおり、細部の正確さは有名度しだいです)。`;
+  } else {
+    box.className = "tl-answer bad";
+    box.innerHTML = `<span class="q">質問:「${y}年の主な出来事を教えて」</span><br>
+      → この期間をモデルは<b style="color:var(--red)">存在ごと知りません</b>。それでも§1の仕組みで「それらしい答え」を作れてしまうため、最も危険な質問帯です。誠実なモデルなら「分かりません」と答えますが、保証はありません。`;
+  }
+}
+document.getElementById("yearSlider").addEventListener("input", tlUpdate);
+tlUpdate();
+
+/* ================================================================
+   §4:RAG パイプライン
+   ================================================================ */
+const RAG_STAGES = [
+  { id: "q",   x: 60,  w: 90,  label: "質問" },
+  { id: "s",   x: 205, w: 110, label: "検索" },
+  { id: "d",   x: 360, w: 120, label: "関連文書" },
+  { id: "w",   x: 505, w: 110, label: "窓(文脈)" },
+  { id: "m",   x: 655, w: 90,  label: "モデル" },
+];
+function buildRag() {
+  const svg = document.getElementById("ragSvg");
+  let html = `<defs><marker id="ra" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#3a4266"/></marker></defs>`;
+  RAG_STAGES.forEach((s, i) => {
+    const cls = s.id === "d" ? "rag-box doc" : "rag-box";
+    html += `<rect id="rag-${s.id}" class="${cls}" x="${s.x - s.w / 2}" y="52" width="${s.w}" height="44" rx="10"/>
+      <text id="raglb-${s.id}" class="rag-label" x="${s.x}" y="79" text-anchor="middle">${s.label}</text>`;
+    if (i < RAG_STAGES.length - 1) {
+      const next = RAG_STAGES[i + 1];
+      html += `<line id="ragarrow-${i}" class="rag-arrow" x1="${s.x + s.w / 2 + 4}" y1="74" x2="${next.x - next.w / 2 - 8}" y2="74" marker-end="url(#ra)"/>`;
+    }
+  });
+  html += `<path id="ragskip" class="rag-arrow" d="M ${60} 100 C 130 138, 420 138, ${505 - 60} 100" marker-end="url(#ra)" opacity="0"/>
+    <text id="ragskiplb" x="285" y="136" font-size="11.5" fill="#9aa3bf" text-anchor="middle" opacity="0">検索せず、あやふやな記憶だけで答える</text>`;
+  svg.innerHTML = html;
+}
+buildRag();
+
+function ragSet(activeIds) {
+  RAG_STAGES.forEach(s => {
+    document.getElementById("rag-" + s.id).classList.toggle("active", activeIds.includes(s.id));
+    document.getElementById("raglb-" + s.id).classList.toggle("active", activeIds.includes(s.id));
+  });
+}
+let ragRunning = false;
+
+async function ragPlay(useRag) {
+  if (ragRunning) return;
+  ragRunning = true;
+  const status = document.getElementById("ragStatus");
+  const answer = document.getElementById("ragAnswer");
+  answer.className = "rag-answer";
+  answer.textContent = "";
+  document.getElementById("ragskip").setAttribute("opacity", useRag ? 0 : 0.9);
+  document.getElementById("ragskiplb").setAttribute("opacity", useRag ? 0 : 0.9);
+  document.getElementById((useRag ? "ragOnBtn" : "ragOffBtn")).classList.add("on");
+  document.getElementById((useRag ? "ragOffBtn" : "ragOnBtn")).classList.remove("on");
+
+  ragSet(["q"]);
+  status.textContent = "質問を受け取りました。";
+  await sleep(900);
+  if (useRag) {
+    ragSet(["s"]);
+    status.textContent = "検索:社内文書から「返品」に関係する文書を探します…";
+    await sleep(1100);
+    ragSet(["d"]);
+    status.textContent = "発見:「返品ポリシー.pdf — 返品は購入後14日以内に承ります」";
+    await sleep(1200);
+    ragSet(["w"]);
+    status.textContent = "取得した文書を質問と一緒にコンテキストウィンドウへ入れます(Vol.4の応用)。";
+    await sleep(1100);
+    ragSet(["m"]);
+    status.textContent = "モデルは目の前の文書を読んで答えます。";
+    await sleep(900);
+    answer.className = "rag-answer good";
+    answer.innerHTML = "「当店の返品期限は<b style='color:var(--green)'>購入後14日以内</b>です。<br><span style='color:var(--sub);font-size:.85rem'>出典:返品ポリシー.pdf</span>」——根拠が文脈にあるため、確認も可能です。";
+  } else {
+    ragSet(["q", "w"]);
+    status.textContent = "検索せず、質問だけを窓に入れます。";
+    await sleep(1100);
+    ragSet(["m"]);
+    status.textContent = "モデルは自分の(あやふやな)記憶だけで答えます。";
+    await sleep(900);
+    answer.className = "rag-answer risky";
+    answer.innerHTML = "「一般的に返品期限は<b style='color:var(--red)'>30日以内</b>とされています。」——自然な文ですが、この店の規定(14日)とは異なります。根拠がないため、間違いに気づく手がかりもありません。";
+  }
+  ragRunning = false;
+}
+
+/* ================================================================
+   §5:判定クイズ
+   ================================================================ */
+const QUIZ = [
+  { q: "新商品のキャッチコピー案を10個出してもらう",
+    ans: 0,
+    fb: "創造タスクは事実性が問われないため、得意分野です。人間が選んで磨けば十分機能します。" },
+  { q: "薬の飲み合わせについて質問し、その回答に従う",
+    ans: 1,
+    fb: "間違いのコストが極めて高い医療情報です。必ず医師・薬剤師など専門家に確認してください。" },
+  { q: "自分で書いた文章を渡して、要約・校正してもらう",
+    ans: 0,
+    fb: "元の文章が窓(文脈)に入っているため、根拠が目の前にある状態です。ハルシネーションの余地が小さい使い方です。" },
+  { q: "レポートに載せる統計の数値と出典を教えてもらう",
+    ans: 1,
+    fb: "数値と出典はマイナー知識の典型で、最も捏造が起きやすい領域です。必ず原典を確認してください。" },
+  { q: "契約書に引用する判例を挙げてもらう",
+    ans: 1,
+    fb: "存在しない判例の引用は実際に起きた事故です(米国で弁護士が制裁を受けた事例が有名)。法務は検証必須です。" },
+];
+let quizIdx = 0, quizCorrect = 0, quizLock = false;
+
+function quizShow() {
+  document.getElementById("quizNum").textContent = "Q" + (quizIdx + 1) + " / " + QUIZ.length;
+  document.getElementById("quizText").textContent = QUIZ[quizIdx].q;
+  document.getElementById("quizFb").innerHTML = "";
+  quizLock = false;
+}
+function quizAnswer(a) {
+  if (quizLock) return;
+  quizLock = true;
+  const q = QUIZ[quizIdx];
+  const ok = a === q.ans;
+  if (ok) quizCorrect++;
+  document.getElementById("quizFb").innerHTML =
+    (ok ? '<b class="good">正解です。</b>' : '<b class="bad">おすすめは逆です。</b>') + q.fb;
+  quizIdx++;
+  setTimeout(() => {
+    if (quizIdx < QUIZ.length) quizShow();
+    else {
+      document.getElementById("quizText").textContent = "トレーニング終了";
+      document.getElementById("quizNum").textContent = "結果";
+      document.getElementById("quizScore").textContent =
+        quizCorrect + " / " + QUIZ.length + " 問正解 — 判断軸:「間違いのコスト」「事実への依存」「根拠が文脈にあるか」";
+    }
+  }, 3400);
+}
+function quizReset() {
+  quizIdx = 0; quizCorrect = 0;
+  document.getElementById("quizScore").textContent = "";
+  quizShow();
+}
+quizShow();
+
+/* ================================================================
+   スクロール進捗バー
+   ================================================================ */
+window.addEventListener("scroll", () => {
+  const p = window.scrollY / (document.body.scrollHeight - innerHeight);
+  document.getElementById("progress").style.width = (p * 100) + "%";
+}, { passive: true });
+</script>
+</body>
+</html>

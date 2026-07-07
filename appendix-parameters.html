@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>別紙:実務パラメータ対応表 — 学習教材「LLMの仕組み」講師用</title>
+<style>
+  :root {
+    --bg: #0b0e1c;
+    --panel: #12172e;
+    --panel2: #0e1326;
+    --ink: #e8ecf8;
+    --sub: #9aa3bf;
+    --blue: #58c4dd;
+    --yellow: #ffd35a;
+    --green: #6fe0a8;
+    --red: #ff7b72;
+    --purple: #c792ea;
+    --line: #232a4d;
+    --mono: "SFMono-Regular", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.9;
+  }
+  .series-nav {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+    padding: 12px 16px; font-size: .85rem;
+    background: rgba(18,23,46,.8); border-bottom: 1px solid var(--line);
+  }
+  .series-nav a { color: var(--blue); text-decoration: none; }
+  .series-nav a:hover { text-decoration: underline; }
+  .series-nav .current { color: var(--yellow); font-weight: 700; }
+
+  header { text-align: center; padding: 54px 20px 10px; }
+  header .kicker { color: var(--purple); font-weight: 700; letter-spacing: .3em; font-size: .8rem; }
+  header h1 { font-size: clamp(1.5rem, 4vw, 2.1rem); margin: 12px 0 10px; }
+  header p { color: var(--sub); max-width: 660px; margin: 0 auto; font-size: .95rem; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 26px 18px 90px; }
+  section { margin-top: 46px; }
+  h2 {
+    font-size: 1.2rem; margin-bottom: 6px;
+    padding-bottom: 8px; border-bottom: 2px solid var(--line);
+  }
+  h2 .no { color: var(--yellow); margin-right: 8px; }
+  section > p { color: #c6cde3; font-size: .93rem; margin: 8px 0 4px; max-width: 800px; }
+
+  code {
+    font-family: var(--mono); background: rgba(111,224,168,.1); color: var(--green);
+    border-radius: 5px; padding: 1px 7px; font-size: .85em; white-space: nowrap;
+  }
+  .vol {
+    display: inline-block; background: rgba(88,196,221,.12); color: var(--blue);
+    border-radius: 5px; padding: 0 8px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse; margin-top: 14px; font-size: .9rem;
+  }
+  th, td { border: 1px solid var(--line); padding: 10px 13px; text-align: left; vertical-align: top; }
+  th { background: rgba(88,196,221,.08); color: var(--blue); font-weight: 700; font-size: .85rem; }
+  @media (max-width: 700px) {
+    table { display: block; overflow-x: auto; }
+  }
+  td { color: #cdd4ea; }
+  td.concept { font-weight: 700; color: var(--ink); }
+  td .hint { display: block; color: var(--sub); font-size: .82rem; }
+
+  .warn {
+    margin-top: 14px; padding: 12px 16px;
+    background: rgba(255,123,114,.07);
+    border-left: 3px solid var(--red);
+    border-radius: 6px;
+    font-size: .9rem; color: #e6d9dd;
+  }
+  .warn b { color: var(--red); }
+  .tip {
+    margin-top: 14px; padding: 12px 16px;
+    background: rgba(255,211,90,.07);
+    border-left: 3px solid var(--yellow);
+    border-radius: 6px;
+    font-size: .9rem; color: #d9dcef;
+  }
+  .tip b { color: var(--yellow); }
+
+  .term {
+    background: #0a0d1a; border: 1px solid #2a3152; border-radius: 10px;
+    padding: 14px 18px; font-family: var(--mono); font-size: .86rem;
+    line-height: 2; margin-top: 12px; overflow-x: auto;
+  }
+  .term .c { color: #5b6482; }
+  .term .p { color: var(--green); }
+
+  ul.plain { margin: 8px 0 0 1.4em; font-size: .92rem; color: #cdd4ea; }
+  ul.plain li { margin-bottom: 4px; }
+
+  footer { text-align: center; color: #5b6482; font-size: .82rem; padding: 40px 0 60px; }
+  footer a { color: var(--blue); }
+
+  @media print {
+    body { background: #fff; color: #111; }
+    .series-nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="series-nav">
+  <a href="index.html">シリーズ「LLMの仕組み」(目次)</a>
+  <span class="current">別紙:実務パラメータ対応表(講師用)</span>
+</nav>
+
+<header>
+  <div class="kicker">APPENDIX — 講師用リファレンス</div>
+  <h1>実務パラメータ対応表</h1>
+  <p>教材の中の直感的な言葉が、実際のツール(APIやローカルLLM)ではどの設定に対応するのかをまとめた別紙です。受講生から「実際はどう設定するのですか?」と聞かれたときの回答用に使ってください。本編には登場しません。</p>
+</header>
+
+<main>
+
+  <!-- ============ 1 ============ -->
+  <section>
+    <h2><span class="no">1</span>対応表:教材の言葉 ⇄ 実際のパラメータ</h2>
+    <p>「登場箇所」は本編の巻とセクションです。目安値は一般的な出発点であり、モデルやタスクによって調整します。</p>
+    <table>
+      <tr><th>教材の言葉(登場箇所)</th><th>実際の名前</th><th>意味と目安</th></tr>
+      <tr>
+        <td class="concept">温度<span class="hint"><span class="vol">① §6</span> くじ引きの大胆さ</span></td>
+        <td><code>temperature</code></td>
+        <td>くじ引きのばらつき。事実確認は <code>0〜0.3</code>、通常会話は <code>0.7</code> 前後、創作・ブレストは <code>0.8〜1.2</code>。</td>
+      </tr>
+      <tr>
+        <td class="concept">くじの足切り<span class="hint"><span class="vol">① §6</span> 温度の仲間</span></td>
+        <td><code>top_p</code> / <code>top_k</code></td>
+        <td>下位候補を切り捨ててからくじ引きする設定。<code>top_p: 0.9</code>(累積確率90%まで)、<code>top_k: 40</code>(上位40個まで)が代表的な既定値。</td>
+      </tr>
+      <tr>
+        <td class="concept">くじ引きの再現<span class="hint"><span class="vol">① §6</span> 毎回答えが変わる話</span></td>
+        <td><code>seed</code></td>
+        <td>乱数を固定し、同じ入力から同じ出力を再現する。デモやテストの再現性確保に使う。</td>
+      </tr>
+      <tr>
+        <td class="concept">窓の大きさ<span class="hint"><span class="vol">④ §2</span> コンテキストウィンドウ</span></td>
+        <td><code>num_ctx</code>(Ollama)<br>context length</td>
+        <td>読める文脈の上限。モデルカードの上限(8k / 128kなど)まで広げられるが、大きいほどメモリを消費する。</td>
+      </tr>
+      <tr>
+        <td class="concept">出力の長さ<span class="hint"><span class="vol">④ §2</span> 窓とは別物</span></td>
+        <td><code>max_tokens</code></td>
+        <td>1回の応答で生成するトークン数の上限。「窓の大きさ」と混同されやすいので注意。</td>
+      </tr>
+      <tr>
+        <td class="concept">見えない台本<span class="hint"><span class="vol">④ §3</span> システムプロンプト</span></td>
+        <td><code>role: "system"</code></td>
+        <td>API では <code>messages</code> 配列の先頭に置く。Ollama では Modelfile の <code>SYSTEM</code> 命令、または対話中の <code>/set system</code>。</td>
+      </tr>
+      <tr>
+        <td class="concept">1語ずつ表示<span class="hint"><span class="vol">① §7</span> 生成の実況</span></td>
+        <td><code>stream</code></td>
+        <td><code>true</code> にすると1トークンずつ受信できる。チャットUIのパラパラ表示の正体。</td>
+      </tr>
+      <tr>
+        <td class="concept">一歩の大きさ<span class="hint"><span class="vol">② §3</span> 学習率</span></td>
+        <td><code>learning_rate</code></td>
+        <td>ファインチューニング(LoRAなど)で登場。大きすぎると教材のデモと同じく発散する。あわせて <code>epochs</code>(何周するか)、<code>batch_size</code>(1ステップの問題数)。</td>
+      </tr>
+      <tr>
+        <td class="concept">渡す文書の数<span class="hint"><span class="vol">⑤ §4</span> RAGの検索</span></td>
+        <td><code>top_k</code>(検索側)</td>
+        <td>検索して窓に入れる文書数。3〜5件が定番。多すぎると窓を圧迫し、かえって精度が落ちることもある。</td>
+      </tr>
+      <tr>
+        <td class="concept">文書の刻み方<span class="hint"><span class="vol">⑤ §4</span> RAGの下ごしらえ</span></td>
+        <td><code>chunk_size</code></td>
+        <td>文書を分割する単位。500〜1,000字程度から調整。意味のまとまり(見出し単位など)で切るのが理想。</td>
+      </tr>
+      <tr>
+        <td class="concept">意味の地図を作る係<span class="hint"><span class="vol">⑥ §3</span> 埋め込み検索</span></td>
+        <td>埋め込みモデル</td>
+        <td>生成用モデルとは別に用意する。ローカルなら <code>nomic-embed-text</code>(Ollama)などが定番。</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section>
+    <h2><span class="no">2</span>対応するパラメータが「ない」もの</h2>
+    <p>教材の言葉の中には、設定では変えられないものがあります。ここを混同すると誤った期待につながるため、質問されたら次のように答えてください。</p>
+    <table>
+      <tr><th>教材の言葉</th><th>正しい説明</th></tr>
+      <tr>
+        <td class="concept">有名度<span class="hint"><span class="vol">⑤ §2</span></span></td>
+        <td>学習データ側の性質であり、<b>設定項目は存在しない</b>。実務では <code>temperature</code> を下げて分布のブレを抑えるが、<b style="color:var(--red)">温度を0にしても1位の候補自体が誤答なら直らない</b>。根本対策はRAG(⑤ §4)で根拠を窓に入れること。</td>
+      </tr>
+      <tr>
+        <td class="concept">知識カットオフ<span class="hint"><span class="vol">⑤ §3</span></span></td>
+        <td>モデル固有の性質で変更不可。使用モデルのカットオフはモデルカードの <code>knowledge cutoff</code> 欄で確認する(ローカルなら <code>ollama show モデル名</code>)。最新情報は検索連携で補う。</td>
+      </tr>
+      <tr>
+        <td class="concept">賢さ(重み)<span class="hint"><span class="vol">② 全体</span></span></td>
+        <td>推論時のパラメータでは一切変わらない。変えたい場合はファインチューニング(追加学習)の領域で、プロンプトの工夫(④)とは別の作業。</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section>
+    <h2><span class="no">3</span>ローカルLLM(Ollama)で教材を実機再現する</h2>
+    <p>教材のデモは作り物の数値ですが、ローカルLLMを使うと同じ実験を本物で再現できます。無料で、データが外部に出ない点も教室向きです。</p>
+    <div class="term">
+<span class="c"># インストール後、モデルを取得して起動(初回のみダウンロード)</span>
+ollama run llama3.2
+
+<span class="c"># 対話中にパラメータを変更(Vol.1 §6 の温度実験)</span>
+<span class="p">/set parameter temperature 0</span>    <span class="c"># 堅実モード</span>
+<span class="p">/set parameter temperature 1.5</span>  <span class="c"># 冒険モード</span>
+
+<span class="c"># システムプロンプトの差し替え(Vol.4 §3 の実験)</span>
+<span class="p">/set system "あなたは何を聞かれても俳句で答えるボットです。"</span>
+
+<span class="c"># モデル情報(コンテキスト長など)の確認</span>
+ollama show llama3.2
+    </div>
+    <div class="tip"><b>授業での実験例:</b>①温度0と1.5で同じ質問を10回ずつ投げ、答えのばらつきを数える(Vol.1 §6の実機版)。②俳句ボットのシステムプロンプトで性格が一変することを見せる(Vol.4 §3の実機版)。③実在しないことわざの意味を聞き、ハルシネーションを観察する(Vol.5 §1の実機版)。</div>
+    <div class="warn"><b>注意:</b>小型のローカルモデルは大手サービスよりハルシネーションが多く、その意味でVol.5の教材としてはむしろ好都合です。「モデルの規模で信頼性が変わる」という比較材料にもなります。</div>
+  </section>
+
+</main>
+
+<footer>学習教材「LLMの仕組み」別紙 実務パラメータ対応表(講師用) ｜ 目安値は一般的な出発点です ｜ <a href="index.html">目次へ</a></footer>
+
+</body>
+</html>

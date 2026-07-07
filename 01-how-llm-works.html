@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMの仕組み — アニメーションで学ぶ言語モデル</title>
+<style>
+  :root {
+    --bg: #0b0e1c;
+    --panel: #12172e;
+    --panel2: #0e1326;
+    --ink: #e8ecf8;
+    --sub: #9aa3bf;
+    --blue: #58c4dd;
+    --deep-blue: #2f7ea8;
+    --yellow: #ffd35a;
+    --green: #6fe0a8;
+    --red: #ff7b72;
+    --purple: #c792ea;
+    --line: #232a4d;
+    --mono: "SFMono-Regular", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.9;
+    overflow-x: hidden;
+  }
+  #progress {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--yellow));
+    z-index: 99;
+  }
+
+  .series-nav {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+    padding: 12px 16px; font-size: .85rem;
+    background: rgba(18,23,46,.8); border-bottom: 1px solid var(--line);
+  }
+  .series-nav a { color: var(--blue); text-decoration: none; }
+  .series-nav a:hover { text-decoration: underline; }
+  .series-nav .current { color: var(--yellow); font-weight: 700; }
+  .series-nav .soon { color: #5b6482; }
+
+  /* ---------- hero ---------- */
+  #hero {
+    position: relative;
+    min-height: 78vh;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  #heroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-inner { position: relative; z-index: 1; padding: 40px 20px; }
+  .hero-inner .kicker {
+    color: var(--yellow); font-weight: 700; letter-spacing: .3em; font-size: .85rem;
+  }
+  .hero-inner h1 {
+    font-size: clamp(1.7rem, 5vw, 3rem);
+    margin: 14px 0 18px;
+    text-shadow: 0 0 30px rgba(88,196,221,.45);
+  }
+  .hero-inner p { color: var(--sub); max-width: 560px; margin: 0 auto; }
+  .hero-inner .scroll-hint {
+    margin-top: 46px; color: var(--blue); font-size: .85rem;
+    animation: bob 2s ease-in-out infinite;
+  }
+  @keyframes bob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(8px);} }
+
+  /* ---------- scenes ---------- */
+  main { max-width: 900px; margin: 0 auto; padding: 0 18px 100px; }
+  .scene { margin-top: 90px; }
+  .chapter {
+    color: var(--yellow); font-weight: 700; font-size: .9rem; letter-spacing: .2em;
+  }
+  .scene h2 {
+    font-size: clamp(1.3rem, 3.4vw, 1.7rem);
+    margin: 8px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--line);
+  }
+  .scene > p { color: #c6cde3; max-width: 760px; }
+  .scene > p + p { margin-top: 8px; }
+  .scene em { font-style: normal; color: var(--yellow); font-weight: 700; }
+  .scene strong { color: var(--blue); }
+
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(rgba(88,196,221,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(88,196,221,.045) 1px, transparent 1px),
+      var(--panel);
+    background-size: 26px 26px, 26px 26px, auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.35);
+  }
+  .panel-title {
+    font-size: .78rem; font-weight: 700; color: var(--purple);
+    letter-spacing: .15em; margin-bottom: 14px;
+  }
+  .note {
+    margin-top: 16px; padding: 12px 16px;
+    background: rgba(255,211,90,.07);
+    border-left: 3px solid var(--yellow);
+    border-radius: 6px;
+    font-size: .92rem; color: #d9dcef;
+  }
+  .note b { color: var(--yellow); }
+
+  button {
+    font-family: inherit; font-size: .92rem; font-weight: 700;
+    padding: 9px 20px; border-radius: 9px; cursor: pointer;
+    background: var(--blue); color: #06202b; border: none;
+    transition: transform .12s, box-shadow .12s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(88,196,221,.4); }
+  button:disabled { background: #3a4266; color: #8b93b5; cursor: default; transform: none; box-shadow: none; }
+  button.ghost { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  input[type=text] {
+    width: 100%; padding: 11px 14px; font-size: 1rem; font-family: inherit;
+    background: var(--panel2); color: var(--ink);
+    border: 1.5px solid var(--line); border-radius: 9px; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--blue); box-shadow: 0 0 12px rgba(88,196,221,.25); }
+  input[type=range] { flex: 1; accent-color: var(--yellow); }
+
+  /* ---------- bar chart ---------- */
+  .bchart .brow { display: flex; align-items: center; gap: 10px; margin: 7px 0; transition: opacity .4s; }
+  .bchart .blabel {
+    width: 128px; flex-shrink: 0; text-align: right;
+    font-family: var(--mono); font-size: .95rem; white-space: nowrap; overflow: hidden;
+  }
+  .bchart .btrack {
+    flex: 1; height: 26px; background: rgba(255,255,255,.05);
+    border-radius: 6px; overflow: hidden; position: relative;
+  }
+  .bchart .bfill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--deep-blue), var(--blue));
+    border-radius: 6px;
+    transition: width .65s cubic-bezier(.25,.9,.3,1), background .3s;
+    box-shadow: 0 0 14px rgba(88,196,221,.25);
+  }
+  .bchart .brow.winner .bfill {
+    background: linear-gradient(90deg, #2f9e6e, var(--green));
+    box-shadow: 0 0 18px rgba(111,224,168,.5);
+  }
+  .bchart .bpct {
+    position: absolute; right: 9px; top: 0; line-height: 26px;
+    font-size: .74rem; font-weight: 700; color: #eaf7ff;
+  }
+  .bchart .bcount {
+    height: 7px; margin-top: 2px; width: 0;
+    background: var(--yellow); border-radius: 4px;
+    transition: width .2s; box-shadow: 0 0 8px rgba(255,211,90,.5);
+  }
+  .bchart .bcountlabel { font-size: .68rem; color: var(--yellow); margin-left: 4px; }
+
+  /* ---------- scene 1 ---------- */
+  .s1-text {
+    font-size: clamp(1.3rem, 4vw, 1.9rem);
+    min-height: 2.6em; line-height: 2;
+    margin-bottom: 18px; text-align: center;
+  }
+  .s1-text .fixed { color: var(--ink); }
+  .s1-text .newtok {
+    display: inline-block; color: var(--green); font-weight: 700;
+    animation: tokIn .5s cubic-bezier(.2,1.4,.4,1) both;
+    text-shadow: 0 0 16px rgba(111,224,168,.6);
+  }
+  @keyframes tokIn { from { transform: translateY(14px) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+  .s1-text .cursor {
+    display: inline-block; width: 3px; height: 1.2em; background: var(--blue);
+    vertical-align: text-bottom; margin-left: 2px;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .s1-status { text-align: center; color: var(--sub); font-size: .88rem; min-height: 1.8em; margin-bottom: 10px; }
+
+  /* ---------- tokens ---------- */
+  .token-area { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; min-height: 50px; }
+  .token {
+    padding: 6px 12px; border-radius: 8px;
+    font-family: var(--mono); font-size: .95rem;
+    color: #0a1020; font-weight: 600;
+    animation: pop .4s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  .token small { display: block; font-size: .66rem; opacity: .7; text-align: center; font-weight: 400; }
+  @keyframes pop { from { transform: scale(.4) translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* ---------- canvases ---------- */
+  .viz-canvas { display: block; width: 100%; border-radius: 8px; cursor: crosshair; }
+  .eq-line {
+    text-align: center; font-size: 1.15rem; font-family: var(--mono);
+    min-height: 1.9em; margin-bottom: 10px; color: var(--yellow);
+  }
+
+  /* ---------- attention svg ---------- */
+  .attn-svg text { user-select: none; }
+  .arc {
+    fill: none; stroke: var(--blue); stroke-linecap: round;
+    stroke-dasharray: 1; stroke-dashoffset: 1;
+    animation: drawArc .7s ease forwards;
+  }
+  @keyframes drawArc { to { stroke-dashoffset: 0; } }
+  .attn-hint { font-size: .84rem; color: var(--sub); margin-top: 8px; }
+
+  /* ---------- softmax columns ---------- */
+  .sm-chart { display: flex; justify-content: center; gap: clamp(8px, 3vw, 26px); position: relative; height: 300px; margin-top: 8px; }
+  .sm-baseline { position: absolute; left: 0; right: 0; top: 190px; border-top: 1.5px dashed #3a4266; }
+  .sm-col { width: clamp(52px, 10vw, 80px); position: relative; }
+  .sm-bar {
+    position: absolute; left: 8%; right: 8%;
+    border-radius: 6px 6px 0 0;
+    transition: height .9s cubic-bezier(.3,.9,.3,1), top .9s cubic-bezier(.3,.9,.3,1), background .5s;
+  }
+  .sm-val {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-family: var(--mono); font-size: .8rem; font-weight: 700;
+    transition: top .9s cubic-bezier(.3,.9,.3,1), color .5s;
+  }
+  .sm-word { position: absolute; top: 268px; left: 0; right: 0; text-align: center; font-size: .92rem; }
+  .sm-mode { text-align: center; font-size: 1.02rem; font-weight: 700; margin-bottom: 6px; min-height: 1.9em; }
+  .sm-mode .m1 { color: var(--blue); } .sm-mode .m2 { color: var(--green); }
+
+  /* ---------- temperature ---------- */
+  .temp-controls { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .temp-value { font-family: var(--mono); font-weight: 700; font-size: 1.15rem; color: var(--yellow); width: 64px; text-align: center; }
+  .temp-side { font-size: .8rem; color: var(--sub); text-align: center; line-height: 1.4; }
+
+  /* ---------- generation theater ---------- */
+  .gen-output {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; min-height: 90px; font-size: 1.12rem; line-height: 2.2; margin-bottom: 14px;
+  }
+  .gen-output .gtoken {
+    display: inline-block; border-radius: 6px; padding: 1px 7px; margin: 2px 1px;
+    color: #0a1020; font-weight: 600;
+    animation: tokIn .45s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  .loop-svg { display: block; width: 100%; max-width: 720px; margin: 0 auto 14px; }
+  .stage-box { fill: var(--panel2); stroke: #3a4266; stroke-width: 1.5; transition: all .3s; }
+  .stage-box.active { fill: rgba(88,196,221,.18); stroke: var(--blue); filter: drop-shadow(0 0 8px rgba(88,196,221,.6)); }
+  .stage-label { fill: var(--sub); font-size: 13px; transition: fill .3s; }
+  .stage-label.active { fill: var(--blue); font-weight: 700; }
+  .loop-arrow { stroke: #3a4266; stroke-width: 2; fill: none; transition: stroke .3s; }
+  .loop-arrow.active { stroke: var(--yellow); filter: drop-shadow(0 0 6px rgba(255,211,90,.7)); }
+  .gen-status { font-size: .88rem; color: var(--sub); min-height: 1.8em; margin-bottom: 10px; }
+
+  /* ---------- summary ---------- */
+  table.myth { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .92rem; }
+  table.myth th, table.myth td { border: 1px solid var(--line); padding: 11px 14px; text-align: left; vertical-align: top; }
+  table.myth th { background: rgba(255,123,114,.08); color: var(--red); width: 40%; font-weight: 600; }
+  table.myth td { color: #cdd4ea; }
+  table.myth td b { color: var(--green); }
+
+  footer { text-align: center; color: #5b6482; font-size: .82rem; padding: 40px 0 60px; }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav class="series-nav">
+  <a href="index.html">シリーズ「LLMの仕組み」(目次)</a>
+  <span class="current">① 推論編(このページ)</span>
+  <a href="02-how-llm-learns.html">② 学習編</a>
+  <a href="03-how-llm-transformer.html">③ Transformer深掘り編</a>
+  <a href="04-how-llm-prompt.html">④ プロンプト編</a>
+  <a href="05-how-llm-limits.html">⑤ 限界と対策編</a>
+  <a href="06-how-llm-apps.html">⑥ 活用編</a>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header id="hero">
+  <canvas id="heroCanvas"></canvas>
+  <div class="hero-inner">
+    <div class="kicker">VISUAL GUIDE</div>
+    <h1>LLMはどうやって<br>文章を書いているのか</h1>
+    <p>ChatGPT や Claude の頭の中で起きていることを、アニメーションで一歩ずつ分解して見ていきます。</p>
+    <div class="scroll-hint">▼ スクロールして始める</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ §1 ============ -->
+  <section class="scene" id="sc1">
+    <div class="chapter">§1 — 本質</div>
+    <h2>すべては「次の言葉あてゲーム」</h2>
+    <p>LLMが行っている計算は、突き詰めると1種類だけです。「<em>ここまでの文章に続く、次のひとかたまり(トークン)は何か?</em>」を確率で予測することです。1つ選んで文末に追加し、また次を予測する。この繰り返しによって文章が作られます。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:モデルが1トークンずつ文を作る様子</div>
+      <div class="s1-text" id="s1text"></div>
+      <div class="s1-status" id="s1status"></div>
+      <div class="bchart" id="s1bars"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>文章は一気に書かれず、毎回「候補の確率を計算 → 1つ選ぶ」を繰り返しています。同じ書き出しでも選ばれ方が変わり、違う文になります。</div>
+  </section>
+
+  <!-- ============ §2 ============ -->
+  <section class="scene" id="sc2">
+    <div class="chapter">§2 — 入力の分解</div>
+    <h2>文章を「トークン」に刻む</h2>
+    <p>LLMは文章をそのままの形では処理しません。まず<strong>トークン</strong>という部品に分割し、それぞれを語彙表の<strong>番号(ID)</strong>に置き換えます。トークンは単語とは限らず、「よく使われる文字のかたまり」です。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:文章を打ち替えて、トークンの刻まれ方を見る</div>
+      <input type="text" id="tokInput" value="むかしむかしあるところにおじいさんとおばあさんがいました">
+      <div class="btn-row"><button onclick="runTokenize()">トークン化する</button></div>
+      <div class="token-area" id="tokOutput"></div>
+      <p id="tokCount" style="font-size:.86rem;color:var(--sub);margin-top:8px;"></p>
+    </div>
+    <div class="note"><b>補足:</b>実際のLLMは数万〜数十万語彙のトークン表を、統計的に「よく出る並び」から自動で作ります(BPEなどの手法)。ここでは教材用の簡易版です。</div>
+  </section>
+
+  <!-- ============ §3 ============ -->
+  <section class="scene" id="sc3">
+    <div class="chapter">§3 — 意味の数値化</div>
+    <h2>言葉は「意味の地図」上の点になる</h2>
+    <p>各トークンは数百〜数千個の数値の並び(<strong>ベクトル</strong>)に変換されます。これを<strong>埋め込み(Embedding)</strong>と呼びます。重要なのは、<em>意味が近い言葉ほど、この空間で近くに置かれる</em>ことです。さらに、言葉どうしの「関係」が<em>矢印(ベクトルの差)</em>として現れます。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:点にマウスを乗せると近い言葉が見える/ボタンでベクトル演算</div>
+      <div class="eq-line" id="eqLine">意味の地図(本物は数百次元。これは2次元に描いたイメージ)</div>
+      <canvas id="embCanvas" class="viz-canvas" style="height:430px;"></canvas>
+      <div class="btn-row">
+        <button onclick="startAnalogy()">▶ 有名な実験:王 − 男 + 女 = ?</button>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>「男→王」の矢印を「女」に足すと「女王」の近くに着地します。意味の関係が<b>足し算・引き算できる形</b>で入っている——これがLLMの土台です。</div>
+  </section>
+
+  <!-- ============ §4 ============ -->
+  <section class="scene" id="sc4">
+    <div class="chapter">§4 — 文脈の読解</div>
+    <h2>Attention:どの言葉に注目すべきか</h2>
+    <p>LLMの中身は<strong>Transformer</strong>という仕組みで、その心臓部が<strong>Attention(注意機構)</strong>です。各単語が「自分の意味を確定させるために、文中のどの単語を見るべきか」を計算します。この処理を何十層も重ねることで、文全体の文脈がベクトルに練り込まれていきます。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:注目の的が次々に切り替わります(単語をクリックしても選べます)</div>
+      <svg id="attnSvg" class="attn-svg" viewBox="0 0 660 210" style="width:100%;height:auto;"></svg>
+      <p class="attn-hint">線が太い=強く注目している(値は教材用のイメージ)。「食べた」は「ねこが」と「さかなを」を見ることで「誰が何を食べたか」を把握します。</p>
+    </div>
+  </section>
+
+  <!-- ============ §5 ============ -->
+  <section class="scene" id="sc5">
+    <div class="chapter">§5 — スコアから確率へ</div>
+    <h2>softmax:生のスコアを確率に変換する</h2>
+    <p>文脈を読み終えたモデルは、語彙の全トークンに<strong>生のスコア(ロジット)</strong>を付けます。スコアはマイナスにもなり得る、単なる数値です。これを<strong>softmax</strong>という変換に通すと、<em>全部足すと100%になる確率</em>に変わります。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:「今日はいい___」の次に来るトークンのスコア ⇄ 確率</div>
+      <div class="sm-mode" id="smMode"></div>
+      <div class="sm-chart" id="smChart"><div class="sm-baseline"></div></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>スコアの差は少しでも、確率にすると大きく開きます(softmaxは大きいスコアを強調する変換のためです)。マイナスのスコアも「ほぼ0%」という正しい確率に変換されます。</div>
+  </section>
+
+  <!-- ============ §6 ============ -->
+  <section class="scene" id="sc6">
+    <div class="chapter">§6 — ゆらぎの制御</div>
+    <h2>温度:くじ引きの大胆さを調整する</h2>
+    <p>確率が決まったら、そこから1つを選びます。常に1位を選ぶ設定もありますが、多くのチャットAIは<strong>くじ引き(サンプリング)</strong>を使います。いつも1位だと文が単調になりがちだからです。くじの「ばらつき具合」を決めるのが<strong>温度(Temperature)</strong>。実際に何百回も引いて、結果がどう散るか確かめましょう。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:温度を動かして、500回くじを引いてみる</div>
+      <div class="temp-controls">
+        <div class="temp-side">堅実<br>(低温)</div>
+        <input type="range" id="tempSlider" min="0.1" max="2" step="0.1" value="1">
+        <div class="temp-side">冒険<br>(高温)</div>
+        <div class="temp-value" id="tempValue">1.0</div>
+      </div>
+      <div class="bchart" id="tempBars"></div>
+      <div class="btn-row"><button id="drawBtn" onclick="runDraws()">🎲 500回くじを引く</button></div>
+      <p id="tempComment" style="font-size:.88rem;color:var(--sub);margin-top:10px;"></p>
+    </div>
+    <div class="note"><b>注目ポイント:</b>青いバー=理論上の確率、黄色いバー=実際に選ばれた回数。低温では1位ばかり、高温では「カレー」のような意外な答えも現実に出てきます。AIの答えが毎回違う理由はこれです。</div>
+  </section>
+
+  <!-- ============ §7 ============ -->
+  <section class="scene" id="sc7">
+    <div class="chapter">§7 — 総仕上げ</div>
+    <h2>生成ループ:4つの工程を繰り返す</h2>
+    <p>§1〜§6の部品をつなぐと、文章生成の全体像になります。「文脈を読む → 確率を計算 → くじ引き → 文末に追加」——この<strong>自己回帰ループ</strong>が1周するたびに、トークンが1つ増えます。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 実行:ループが回る様子と物語の生成を同時に見る</div>
+      <svg id="loopSvg" class="loop-svg" viewBox="0 0 720 190"></svg>
+      <div class="gen-output" id="genOutput"></div>
+      <div class="gen-status" id="genStatus">「生成スタート」を押してください。</div>
+      <div class="bchart" id="genBars" style="margin-bottom:12px;"></div>
+      <div class="btn-row">
+        <button id="genBtn" onclick="startGeneration()">▶ 生成スタート</button>
+        <button class="ghost" onclick="resetGeneration()">リセット</button>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>何度か実行すると、くじ引きの結果次第で毎回違う物語になります。ChatGPTの回答が1語ずつ順に表示されるのは、このループが実行されている様子そのものです。</div>
+  </section>
+
+  <!-- ============ §8 ============ -->
+  <section class="scene" id="sc8">
+    <div class="chapter">§8 — まとめ</div>
+    <h2>よくある誤解と、正しい理解</h2>
+    <table class="myth">
+      <tr><th>「AIはデータベースから答えを検索している」</th>
+          <td>検索ではなく、学習した確率パターンからその場で<b>1トークンずつ生成</b>している。だから存在しない情報をそれらしく作ること(ハルシネーション)もある。</td></tr>
+      <tr><th>「AIは人間のように意味を理解している」</th>
+          <td>「次の言葉の予測」をきわめて高い精度で行っているだけ。ただしその予測のために、<b>意味の地図(ベクトル空間)</b>を内部に作り上げている。</td></tr>
+      <tr><th>「同じ質問なら同じ答えが返るはず」</th>
+          <td>確率からの<b>くじ引き</b>で選ぶので毎回変わりうる。温度を下げればブレは小さくなる。</td></tr>
+      <tr><th>「AIは考えてから全文を一気に書いている」</th>
+          <td>先頭から<b>1トークンずつ順番に</b>生成している。回答が少しずつ表示されるのは、生成の途中経過がそのまま見えているため。</td></tr>
+    </table>
+    <div class="note" style="margin-top:22px;"><b>今日のキーワード:</b>トークン / 埋め込み(ベクトル) / Transformer / Attention / ロジット / softmax / サンプリング / 温度 / 自己回帰生成</div>
+  </section>
+
+</main>
+
+<footer>学習教材「LLMの仕組み」Vol.1 推論編 ｜ 図中の確率・数値はすべて教材用に作成したものです ｜ <a href="index.html">目次へ</a></footer>
+
+<script>
+/* ================================================================
+   共通ユーティリティ
+   ================================================================ */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const visible = {};
+const io = new IntersectionObserver(
+  es => es.forEach(e => visible[e.target.id] = e.isIntersecting),
+  { threshold: 0.2 }
+);
+document.querySelectorAll(".scene, #hero").forEach(s => io.observe(s));
+async function whenVisible(id) { while (!visible[id]) await sleep(250); }
+
+function sampleFrom(probs) {
+  const r = Math.random();
+  let acc = 0;
+  for (const [w, p] of probs) { acc += p; if (r < acc) return w; }
+  return probs[probs.length - 1][0];
+}
+
+/* 横棒グラフ部品(確率バー+回数バー) */
+class BarChart {
+  constructor(container, n, withCount = false) {
+    this.rows = [];
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement("div");
+      row.className = "brow";
+      row.innerHTML = `<div class="blabel"></div>
+        <div style="flex:1">
+          <div class="btrack"><div class="bfill"></div><span class="bpct"></span></div>
+          ${withCount ? '<div style="display:flex;align-items:center"><div class="bcount"></div><span class="bcountlabel"></span></div>' : ""}
+        </div>`;
+      container.appendChild(row);
+      this.rows.push(row);
+    }
+  }
+  /* data: [[label, prob], ...] 降順推奨。winnerLabel に一致した行を緑に */
+  update(data, winnerLabel = null) {
+    const maxP = Math.max(...data.map(d => d[1]), 1e-9);
+    this.rows.forEach((row, i) => {
+      if (i < data.length) {
+        const [w, p] = data[i];
+        row.style.opacity = 1;
+        row.querySelector(".blabel").textContent = w;
+        row.querySelector(".bfill").style.width = (p / maxP * 100) + "%";
+        row.querySelector(".bpct").textContent = p >= 0.005 ? (p * 100).toFixed(1) + "%" : "≈0%";
+        row.classList.toggle("winner", w === winnerLabel);
+      } else {
+        row.style.opacity = 0;
+        row.classList.remove("winner");
+      }
+    });
+  }
+  setCounts(counts, labels) {
+    const maxC = Math.max(...counts, 1);
+    this.rows.forEach((row, i) => {
+      const bar = row.querySelector(".bcount");
+      if (!bar || i >= labels.length) return;
+      bar.style.width = (counts[i] / maxC * 88) + "%";
+      row.querySelector(".bcountlabel").textContent = counts[i] > 0 ? counts[i] + "回" : "";
+    });
+  }
+}
+
+/* ================================================================
+   HERO:ニューラルネットを信号が流れるアニメーション
+   ================================================================ */
+(function heroNet() {
+  const cv = document.getElementById("heroCanvas");
+  const ctx = cv.getContext("2d");
+  let W, H, nodes = [], edges = [], pulses = [];
+
+  function build() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = r.width; H = r.height;
+    nodes = []; edges = [];
+    const cols = W < 640 ? 5 : 7;
+    for (let c = 0; c < cols; c++) {
+      const count = 4 + ((c * 7) % 4);
+      for (let i = 0; i < count; i++) {
+        nodes.push({
+          c, x: (c + 0.5) / cols * W,
+          y: (i + 0.7) / (count + 0.4) * H,
+          phase: Math.random() * 6.28,
+        });
+      }
+    }
+    for (const a of nodes) {
+      const next = nodes.filter(n => n.c === a.c + 1);
+      for (let k = 0; k < 3 && next.length; k++) {
+        edges.push([a, next[Math.floor(Math.random() * next.length)]]);
+      }
+    }
+  }
+
+  function spawnPulse() {
+    if (pulses.length < 26) {
+      pulses.push({ e: edges[Math.floor(Math.random() * edges.length)], t: 0, sp: 0.006 + Math.random() * 0.01 });
+    }
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible["hero"]) return;
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 1;
+    for (const [a, b] of edges) {
+      ctx.strokeStyle = "rgba(88,196,221,.09)";
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    for (const n of nodes) {
+      const glow = 0.5 + 0.5 * Math.sin(now / 900 + n.phase);
+      ctx.fillStyle = `rgba(88,196,221,${0.25 + glow * 0.3})`;
+      ctx.beginPath(); ctx.arc(n.x, n.y, 3.2 + glow * 1.5, 0, 6.28); ctx.fill();
+    }
+    if (Math.random() < 0.3) spawnPulse();
+    pulses = pulses.filter(p => p.t <= 1);
+    for (const p of pulses) {
+      p.t += p.sp;
+      const [a, b] = p.e;
+      const x = a.x + (b.x - a.x) * p.t, y = a.y + (b.y - a.y) * p.t;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 7);
+      g.addColorStop(0, "rgba(255,211,90,.95)");
+      g.addColorStop(1, "rgba(255,211,90,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, 6.28); ctx.fill();
+    }
+  }
+  build();
+  window.addEventListener("resize", build);
+  requestAnimationFrame(frame);
+})();
+
+/* ================================================================
+   §1:次トークン予測の自動デモ
+   ================================================================ */
+const S1_LM = {
+  "START": [["今日は", 0.45], ["ねこが", 0.3], ["空が", 0.25]],
+  "今日は": [["いい", 0.5], ["とても", 0.3], ["雨", 0.2]],
+  "いい": [["天気", 0.6], ["気分", 0.25], ["ながめ", 0.15]],
+  "とても": [["いい", 0.55], ["さむい", 0.45]],
+  "雨": [["がふって", 0.7], ["でした。", 0.3]],
+  "がふって": [["います。", 1.0]],
+  "天気": [["です。", 0.6], ["なので", 0.4]],
+  "気分": [["です。", 1.0]],
+  "ながめ": [["です。", 1.0]],
+  "なので": [["さんぽに", 1.0]],
+  "さんぽに": [["行きます。", 1.0]],
+  "ねこが": [["ひなたで", 0.6], ["ないて", 0.4]],
+  "ひなたで": [["ねむって", 1.0]],
+  "ねむって": [["います。", 1.0]],
+  "ないて": [["います。", 1.0]],
+  "空が": [["青くて", 1.0]],
+  "青くて": [["きれいです。", 1.0]],
+  "さむい": [["日です。", 1.0]],
+};
+
+(async function scene1() {
+  const textEl = document.getElementById("s1text");
+  const statusEl = document.getElementById("s1status");
+  const chart = new BarChart(document.getElementById("s1bars"), 4);
+  while (true) {
+    await whenVisible("sc1");
+    textEl.innerHTML = '<span class="cursor"></span>';
+    let key = "START", step = 0;
+    while (S1_LM[key] && step < 10) {
+      await whenVisible("sc1");
+      step++;
+      const probs = [...S1_LM[key]].sort((a, b) => b[1] - a[1]);
+      statusEl.textContent = "次のトークンの確率を計算中…";
+      chart.update(probs);
+      await sleep(950);
+      const chosen = sampleFrom(probs);
+      chart.update(probs, chosen);
+      statusEl.textContent = "くじ引きの結果 →「" + chosen + "」";
+      await sleep(650);
+      const span = document.createElement("span");
+      span.className = "newtok";
+      span.textContent = chosen;
+      textEl.insertBefore(span, textEl.querySelector(".cursor"));
+      setTimeout(() => { span.className = "fixed"; }, 600);
+      if (chosen.endsWith("。")) break;
+      key = chosen;
+      await sleep(350);
+    }
+    statusEl.textContent = "文が完成しました。まもなく次の文を生成します…";
+    await sleep(2600);
+  }
+})();
+
+/* ================================================================
+   §2:簡易トークナイザ(教材用:よく使う語优先 + 2文字チャンク)
+   ================================================================ */
+const VOCAB_WORDS = [
+  "むかしむかし","あるところに","おじいさん","おばあさん","いました","こんにちは",
+  "ありがとう","です","ます","でした","した","して","という","ところ","わたし","あなた",
+  "日本","東京","学校","先生","勉強","言語","モデル","人工知能","トークン",
+  "が","を","に","は","と","の","で","も","から","まで","へ","や","ね","よ","。","、","!","?"
+];
+const TOKEN_COLORS = ["#58c4dd", "#ffd35a", "#6fe0a8", "#c792ea", "#ff9e7a", "#7aa8ff"];
+
+function simpleTokenize(text) {
+  const tokens = [];
+  const sorted = [...VOCAB_WORDS].sort((a, b) => b.length - a.length);
+  let i = 0;
+  while (i < text.length) {
+    const matched = sorted.find(w => text.startsWith(w, i));
+    if (matched) { tokens.push(matched); i += matched.length; }
+    else { tokens.push(text.slice(i, i + 2)); i += 2; }
+  }
+  return tokens;
+}
+
+function runTokenize() {
+  const text = document.getElementById("tokInput").value.trim();
+  const out = document.getElementById("tokOutput");
+  const count = document.getElementById("tokCount");
+  out.innerHTML = "";
+  if (!text) { count.textContent = ""; return; }
+  const tokens = simpleTokenize(text);
+  tokens.forEach((t, idx) => {
+    let id = 0;
+    for (const ch of t) id = (id * 31 + ch.charCodeAt(0)) % 50000;
+    const span = document.createElement("span");
+    span.className = "token";
+    span.style.background = TOKEN_COLORS[idx % TOKEN_COLORS.length];
+    span.style.animationDelay = (idx * 0.07) + "s";
+    span.innerHTML = t + "<small>ID:" + id + "</small>";
+    out.appendChild(span);
+  });
+  count.textContent = "→ " + tokens.length + " 個のトークン。モデルにはこのID(番号)の列だけが渡されます。";
+}
+runTokenize();
+
+/* ================================================================
+   §3:埋め込み空間キャンバス
+   ================================================================ */
+const EMB_WORDS = [
+  { w: "ねこ",    x: .13, y: .24, c: "#58c4dd" },
+  { w: "いぬ",    x: .21, y: .33, c: "#58c4dd" },
+  { w: "うさぎ",  x: .10, y: .40, c: "#58c4dd" },
+  { w: "とり",    x: .26, y: .19, c: "#58c4dd" },
+  { w: "りんご",  x: .74, y: .22, c: "#6fe0a8" },
+  { w: "パン",    x: .85, y: .30, c: "#6fe0a8" },
+  { w: "すし",    x: .79, y: .14, c: "#6fe0a8" },
+  { w: "カレー",  x: .90, y: .20, c: "#6fe0a8" },
+  { w: "くるま",  x: .17, y: .76, c: "#c792ea" },
+  { w: "でんしゃ",x: .28, y: .84, c: "#c792ea" },
+  { w: "ひこうき",x: .11, y: .87, c: "#c792ea" },
+  { w: "男",      x: .55, y: .82, c: "#ffd35a" },
+  { w: "女",      x: .70, y: .84, c: "#ffd35a" },
+  { w: "王",      x: .58, y: .62, c: "#ffd35a" },
+  { w: "女王",    x: .735, y: .645, c: "#ffd35a" },
+];
+let analogy = null; // {start: timestamp}
+let embMouse = null;
+
+(function embeddingScene() {
+  const cv = document.getElementById("embCanvas");
+  const ctx = cv.getContext("2d");
+  let W, H;
+
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = r.width; H = r.height;
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  const px = p => ({ x: p.x * (W - 80) + 40, y: p.y * (H - 70) + 25 });
+  const byName = Object.fromEntries(EMB_WORDS.map(p => [p.w, p]));
+
+  cv.addEventListener("mousemove", e => {
+    const r = cv.getBoundingClientRect();
+    embMouse = { x: e.clientX - r.left, y: e.clientY - r.top };
+  });
+  cv.addEventListener("mouseleave", () => embMouse = null);
+
+  function drawArrow(a, b, color, width, dash) {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+    if (dash) ctx.setLineDash([7, 5]);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - 11 * Math.cos(ang - 0.4), b.y - 11 * Math.sin(ang - 0.4));
+    ctx.lineTo(b.x - 11 * Math.cos(ang + 0.4), b.y - 11 * Math.sin(ang + 0.4));
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible["sc3"]) return;
+    ctx.clearRect(0, 0, W, H);
+
+    // ふわふわ揺れる点の現在位置
+    const pos = EMB_WORDS.map((p, i) => {
+      const b = px(p);
+      return { ...p, sx: b.x + Math.sin(now / 1400 + i * 1.7) * 3.5, sy: b.y + Math.cos(now / 1700 + i * 2.3) * 3.5 };
+    });
+    const at = w => pos.find(p => p.w === w);
+
+    // ホバー:一番近い点と、その近傍3語への線
+    let hovered = null;
+    if (embMouse) {
+      let best = 1e9;
+      for (const p of pos) {
+        const d = (p.sx - embMouse.x) ** 2 + (p.sy - embMouse.y) ** 2;
+        if (d < best && d < 3600) { best = d; hovered = p; }
+      }
+    }
+    if (hovered) {
+      const others = pos.filter(p => p !== hovered)
+        .map(p => ({ p, d: Math.hypot(p.x - hovered.x, p.y - hovered.y) }))
+        .sort((a, b) => a.d - b.d).slice(0, 3);
+      for (const { p, d } of others) {
+        ctx.strokeStyle = "rgba(255,255,255,.35)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(hovered.sx, hovered.sy); ctx.lineTo(p.sx, p.sy); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(255,255,255,.75)";
+        ctx.font = "11px sans-serif";
+        ctx.fillText("距離 " + (d * 10).toFixed(1), (hovered.sx + p.sx) / 2 + 5, (hovered.sy + p.sy) / 2);
+      }
+    }
+
+    // アナロジー演出(王 − 男 + 女)
+    if (analogy) {
+      const t = now - analogy.start;
+      const man = at("男"), king = at("王"), woman = at("女"), queen = at("女王");
+      const vx = king.sx - man.sx, vy = king.sy - man.sy;
+      const eq = document.getElementById("eqLine");
+      if (t < 900) {
+        const k = t / 900;
+        drawArrow({ x: man.sx, y: man.sy }, { x: man.sx + vx * k, y: man.sy + vy * k }, "#ffd35a", 3);
+        eq.textContent = "「男 → 王」の矢印を取り出す…";
+      } else if (t < 2000) {
+        drawArrow({ x: man.sx, y: man.sy }, { x: king.sx, y: king.sy }, "rgba(255,211,90,.35)", 2);
+        const k = (t - 900) / 1100;
+        const ox = man.sx + (woman.sx - man.sx) * k, oy = man.sy + (woman.sy - man.sy) * k;
+        drawArrow({ x: ox, y: oy }, { x: ox + vx, y: oy + vy }, "#ffd35a", 3, true);
+        eq.textContent = "同じ矢印を「女」に移動…";
+      } else if (t < 4800) {
+        drawArrow({ x: man.sx, y: man.sy }, { x: king.sx, y: king.sy }, "rgba(255,211,90,.35)", 2);
+        drawArrow({ x: woman.sx, y: woman.sy }, { x: woman.sx + vx, y: woman.sy + vy }, "#ffd35a", 3, true);
+        const ring = 12 + 9 * Math.abs(Math.sin((t - 2000) / 350));
+        ctx.strokeStyle = "#6fe0a8"; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(queen.sx, queen.sy, ring, 0, 6.28); ctx.stroke();
+        eq.innerHTML = '王 − 男 + 女 ≈ <span style="color:#6fe0a8">女王</span>';
+      } else {
+        analogy = null;
+        eq.textContent = "意味の地図(本物は数百次元。これは2次元に描いたイメージ)";
+      }
+    }
+
+    // 点とラベル
+    for (const p of pos) {
+      const hot = hovered === p;
+      ctx.fillStyle = p.c;
+      ctx.shadowColor = p.c;
+      ctx.shadowBlur = hot ? 18 : 8;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, hot ? 8 : 5.5, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = hot ? "#fff" : "rgba(232,236,248,.85)";
+      ctx.font = (hot ? "bold 15px" : "13px") + " sans-serif";
+      ctx.fillText(p.w, p.sx + 10, p.sy + 4);
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+
+function startAnalogy() {
+  analogy = { start: performance.now() };
+}
+
+/* ================================================================
+   §4:Attention 自動巡回
+   ================================================================ */
+const ATTN_WORDS = ["その", "ねこが", "さかなを", "ゆっくり", "食べた"];
+const ATTN_W = [
+  [0,    .80, .08, .05, .07],
+  [.25,  0,   .20, .10, .45],
+  [.05,  .30, 0,   .15, .50],
+  [.05,  .15, .10, 0,   .70],
+  [.05,  .35, .45, .15, 0  ],
+];
+let attnSelected = 4;
+let attnTimer = null;
+
+function drawAttention() {
+  const svg = document.getElementById("attnSvg");
+  const n = ATTN_WORDS.length;
+  const xs = ATTN_WORDS.map((_, i) => 95 + i * 118);
+  const yTop = 52, yBottom = 158;
+  let html = "";
+  for (let j = 0; j < n; j++) {
+    if (j === attnSelected) continue;
+    const w = ATTN_W[attnSelected][j];
+    const x1 = xs[attnSelected], x2 = xs[j];
+    const mid = (x1 + x2) / 2;
+    html += `<path class="arc" pathLength="1" d="M ${x1} ${yTop + 16} Q ${mid} ${yTop + 78} ${x2} ${yBottom - 24}"
+      stroke-width="${1 + w * 13}" opacity="${0.3 + w * 0.9}" style="animation-delay:${j * 0.06}s"/>`;
+    if (w >= 0.1) {
+      html += `<text x="${mid}" y="${(yTop + yBottom) / 2 + 2}" font-size="12" fill="#ffd35a"
+        text-anchor="middle" font-weight="bold">${Math.round(w * 100)}%</text>`;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const sel = i === attnSelected;
+    html += `<g style="cursor:pointer" onclick="selectAttn(${i})">
+      <rect x="${xs[i] - 52}" y="${yTop - 28}" width="104" height="42" rx="10"
+        fill="${sel ? "#58c4dd" : "#0e1326"}" stroke="${sel ? "#8fe3f7" : "#3a4266"}" stroke-width="1.5"/>
+      <text x="${xs[i]}" y="${yTop}" font-size="16" text-anchor="middle"
+        fill="${sel ? "#06202b" : "#e8ecf8"}" font-weight="${sel ? "bold" : "normal"}">${ATTN_WORDS[i]}</text></g>`;
+  }
+  for (let j = 0; j < n; j++) {
+    const w = j === attnSelected ? 0 : ATTN_W[attnSelected][j];
+    html += `<g><rect x="${xs[j] - 52}" y="${yBottom - 24}" width="104" height="42" rx="10"
+      fill="#0e1326" stroke="#2a3152"/>
+      <text x="${xs[j]}" y="${yBottom + 3}" font-size="16" text-anchor="middle"
+        fill="#e8ecf8" opacity="${0.3 + w * 1.2}">${ATTN_WORDS[j]}</text></g>`;
+  }
+  html += `<text x="8" y="${yTop}" font-size="11" fill="#9aa3bf">注目する側</text>`;
+  html += `<text x="8" y="${yBottom}" font-size="11" fill="#9aa3bf">注目される側</text>`;
+  svg.innerHTML = html;
+}
+
+function selectAttn(i) {
+  attnSelected = i;
+  drawAttention();
+  restartAttnTimer();
+}
+function restartAttnTimer() {
+  clearInterval(attnTimer);
+  attnTimer = setInterval(() => {
+    if (!visible["sc4"]) return;
+    attnSelected = (attnSelected + 1) % ATTN_WORDS.length;
+    drawAttention();
+  }, 3000);
+}
+drawAttention();
+restartAttnTimer();
+
+/* ================================================================
+   §5:softmax モーフィング
+   ================================================================ */
+const SM_DATA = [
+  { w: "天気",   logit: 3.1 },
+  { w: "気分",   logit: 1.8 },
+  { w: "ながめ", logit: 0.9 },
+  { w: "ねこ",   logit: -0.6 },
+  { w: "冷蔵庫", logit: -1.9 },
+];
+(function softmaxScene() {
+  const chart = document.getElementById("smChart");
+  const modeEl = document.getElementById("smMode");
+  const BASE = 190;             // 基準線(px, チャート上端から)
+  const LOGIT_SCALE = 42;       // 1.0 あたりの高さ
+  const PROB_SCALE = 210;       // 100% あたりの高さ
+
+  const exps = SM_DATA.map(d => Math.exp(d.logit));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  const probs = exps.map(e => e / sum);
+
+  const cols = SM_DATA.map(d => {
+    const col = document.createElement("div");
+    col.className = "sm-col";
+    col.innerHTML = `<div class="sm-bar"></div><div class="sm-val"></div><div class="sm-word">${d.w}</div>`;
+    chart.appendChild(col);
+    return col;
+  });
+
+  function render(mode) {
+    modeEl.innerHTML = mode === 0
+      ? '<span class="m1">① モデルが出す生スコア(ロジット)— マイナスもある</span>'
+      : '<span class="m2">② softmax変換 → 全部足すと100%の確率に</span>';
+    cols.forEach((col, i) => {
+      const bar = col.querySelector(".sm-bar");
+      const val = col.querySelector(".sm-val");
+      if (mode === 0) {
+        const v = SM_DATA[i].logit * LOGIT_SCALE;
+        if (v >= 0) { bar.style.top = (BASE - v) + "px"; bar.style.height = v + "px"; }
+        else { bar.style.top = BASE + "px"; bar.style.height = (-v) + "px"; }
+        bar.style.background = v >= 0
+          ? "linear-gradient(180deg,#58c4dd,#2f7ea8)"
+          : "linear-gradient(180deg,#a8404a,#ff7b72)";
+        bar.style.borderRadius = v >= 0 ? "6px 6px 0 0" : "0 0 6px 6px";
+        val.textContent = SM_DATA[i].logit.toFixed(1);
+        val.style.top = (v >= 0 ? BASE - v - 26 : BASE - v + 6) + "px";
+        val.style.color = v >= 0 ? "#8fe3f7" : "#ff9e97";
+      } else {
+        const h = probs[i] * PROB_SCALE;
+        bar.style.top = (BASE - h) + "px";
+        bar.style.height = h + "px";
+        bar.style.background = "linear-gradient(180deg,#6fe0a8,#2f9e6e)";
+        bar.style.borderRadius = "6px 6px 0 0";
+        val.textContent = probs[i] >= 0.01 ? (probs[i] * 100).toFixed(1) + "%" : "≈0%";
+        val.style.top = (BASE - h - 26) + "px";
+        val.style.color = "#9ff0c6";
+      }
+    });
+  }
+
+  let mode = 0;
+  render(0);
+  setInterval(() => {
+    if (!visible["sc5"]) return;
+    mode = 1 - mode;
+    render(mode);
+  }, 3300);
+})();
+
+/* ================================================================
+   §6:温度スライダー + 500回サンプリング
+   ================================================================ */
+const TEMP_BASE = [
+  ["おじいさん", 0.42], ["おばあさん", 0.18], ["わかもの", 0.12],
+  ["ねこ", 0.08], ["ロボット", 0.04], ["カレー", 0.01],
+];
+let tempChart, tempProbs;
+
+function applyTemperature(probs, T) {
+  const powered = probs.map(([w, p]) => [w, Math.pow(p, 1 / T)]);
+  const s = powered.reduce((acc, [, p]) => acc + p, 0);
+  return powered.map(([w, p]) => [w, p / s]);
+}
+
+function updateTemp() {
+  const T = parseFloat(document.getElementById("tempSlider").value);
+  document.getElementById("tempValue").textContent = T.toFixed(1);
+  tempProbs = applyTemperature(TEMP_BASE, T);
+  tempChart.update(tempProbs);
+  tempChart.setCounts(new Array(tempProbs.length).fill(0), tempProbs);
+  const c = document.getElementById("tempComment");
+  if (T <= 0.4) c.textContent = "低温:1位に確率が集中し、ほぼ毎回同じ答えになります。";
+  else if (T <= 1.2) c.textContent = "標準:学習したままのバランスで、自然な多様性があります。";
+  else c.textContent = "高温:確率が平らになり、意外な答えも現実的な頻度で選ばれます。";
+}
+
+async function runDraws() {
+  const btn = document.getElementById("drawBtn");
+  btn.disabled = true;
+  const counts = new Array(tempProbs.length).fill(0);
+  const labels = tempProbs.map(p => p[0]);
+  for (let done = 0; done < 500; done += 10) {
+    for (let k = 0; k < 10; k++) {
+      const w = sampleFrom(tempProbs);
+      counts[labels.indexOf(w)]++;
+    }
+    tempChart.setCounts(counts, tempProbs);
+    await sleep(28);
+  }
+  btn.disabled = false;
+}
+
+tempChart = new BarChart(document.getElementById("tempBars"), TEMP_BASE.length, true);
+document.getElementById("tempSlider").addEventListener("input", updateTemp);
+updateTemp();
+
+/* ================================================================
+   §7:生成ループ・シアター
+   ================================================================ */
+const STAGES = ["① 文脈を読む", "② 確率を計算", "③ くじ引き", "④ 文末に追加"];
+
+function buildLoopSvg() {
+  const svg = document.getElementById("loopSvg");
+  const xs = [100, 273, 446, 619], y = 62, w = 150, h = 46;
+  let html = `<defs><marker id="la" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+    <path d="M0,0 L7,3.5 L0,7 z" fill="#3a4266"/></marker>
+    <marker id="laY" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+    <path d="M0,0 L7,3.5 L0,7 z" fill="#ffd35a"/></marker></defs>`;
+  for (let i = 0; i < 3; i++) {
+    html += `<line id="arrow${i}" class="loop-arrow" x1="${xs[i] + w / 2 + 4}" y1="${y}"
+      x2="${xs[i + 1] - w / 2 - 8}" y2="${y}" marker-end="url(#la)"/>`;
+  }
+  html += `<path id="arrow3" class="loop-arrow" marker-end="url(#la)"
+    d="M ${xs[3]} ${y + h / 2 + 4} C ${xs[3]} 165, ${xs[0]} 165, ${xs[0]} ${y + h / 2 + 10}"/>`;
+  html += `<text x="360" y="172" font-size="12.5" fill="#9aa3bf" text-anchor="middle">出力を文脈に足して、次のトークンへ(自己回帰)</text>`;
+  STAGES.forEach((s, i) => {
+    html += `<rect id="stage${i}" class="stage-box" x="${xs[i] - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="11"/>
+      <text id="stagelabel${i}" class="stage-label" x="${xs[i]}" y="${y + 5}" text-anchor="middle">${s}</text>`;
+  });
+  svg.innerHTML = html;
+}
+buildLoopSvg();
+
+function setStage(k) {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById("stage" + i).classList.toggle("active", i === k);
+    document.getElementById("stagelabel" + i).classList.toggle("active", i === k);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = document.getElementById("arrow" + i);
+    a.classList.toggle("active", i === (k + 3) % 4 && k >= 0);
+    a.setAttribute("marker-end", i === (k + 3) % 4 && k >= 0 ? "url(#laY)" : "url(#la)");
+  }
+}
+
+const MINI_LM = {
+  "START": [["むかしむかし、", 0.7], ["あるひ、", 0.3]],
+  "むかしむかし、": [["あるところに", 0.8], ["やまのおくに", 0.2]],
+  "あるひ、": [["あるところに", 0.5], ["やまのおくに", 0.5]],
+  "あるところに": [["おじいさんが", 0.5], ["おばあさんが", 0.25], ["ねこが", 0.15], ["ロボットが", 0.1]],
+  "やまのおくに": [["おじいさんが", 0.4], ["ねこが", 0.35], ["ロボットが", 0.25]],
+  "おじいさんが": [["すんでいました。", 0.6], ["たびをしていました。", 0.4]],
+  "おばあさんが": [["すんでいました。", 0.6], ["うたっていました。", 0.4]],
+  "ねこが": [["ひるねをしていました。", 0.55], ["すんでいました。", 0.45]],
+  "ロボットが": [["ひかっていました。", 0.5], ["すんでいました。", 0.5]],
+  "すんでいました。": [["ある日、", 0.7], ["おじいさんは", 0.3]],
+  "たびをしていました。": [["ある日、", 1.0]],
+  "うたっていました。": [["ある日、", 1.0]],
+  "ひるねをしていました。": [["ある日、", 1.0]],
+  "ひかっていました。": [["ある日、", 1.0]],
+  "おじいさんは": [["やまへ", 0.6], ["かわへ", 0.4]],
+  "ある日、": [["ふしぎなことが", 0.6], ["たからものが", 0.4]],
+  "やまへ": [["しばかりに行きました。", 1.0]],
+  "かわへ": [["せんたくに行きました。", 1.0]],
+  "ふしぎなことが": [["おこりました。", 1.0]],
+  "たからものが": [["みつかりました。", 1.0]],
+};
+const GEN_END = ["行きました。", "おこりました。", "みつかりました。"];
+let genRunning = false;
+const genChart = new BarChart(document.getElementById("genBars"), 4);
+
+async function startGeneration() {
+  if (genRunning) return;
+  genRunning = true;
+  document.getElementById("genBtn").disabled = true;
+  const out = document.getElementById("genOutput");
+  const status = document.getElementById("genStatus");
+  out.innerHTML = "";
+  genChart.update([]);
+
+  let key = "START", step = 0;
+  while (MINI_LM[key] && step < 12) {
+    step++;
+    const probs = [...MINI_LM[key]].sort((a, b) => b[1] - a[1]);
+
+    setStage(0);
+    status.textContent = "ステップ " + step + ":ここまでの文脈をTransformerが読む…";
+    await sleep(700);
+
+    setStage(1);
+    status.textContent = "ステップ " + step + ":次トークンの確率を計算(softmax)…";
+    genChart.update(probs);
+    await sleep(1000);
+
+    setStage(2);
+    const chosen = sampleFrom(probs);
+    genChart.update(probs, chosen);
+    status.textContent = "ステップ " + step + ":くじ引き →「" + chosen + "」に決定しました";
+    await sleep(750);
+
+    setStage(3);
+    const span = document.createElement("span");
+    span.className = "gtoken";
+    span.style.background = TOKEN_COLORS[(step - 1) % TOKEN_COLORS.length];
+    span.textContent = chosen;
+    out.appendChild(span);
+    await sleep(550);
+
+    if (GEN_END.some(e => chosen.endsWith(e))) break;
+    key = chosen;
+  }
+  setStage(-1);
+  status.textContent = "生成が完了しました。もう一度実行すると、くじ引きの結果によって別の物語になります。";
+  document.getElementById("genBtn").disabled = false;
+  genRunning = false;
+}
+
+function resetGeneration() {
+  if (genRunning) return;
+  document.getElementById("genOutput").innerHTML = "";
+  genChart.update([]);
+  setStage(-1);
+  document.getElementById("genStatus").textContent = "「生成スタート」を押してください。";
+}
+
+/* ================================================================
+   スクロール進捗バー
+   ================================================================ */
+window.addEventListener("scroll", () => {
+  const p = window.scrollY / (document.body.scrollHeight - innerHeight);
+  document.getElementById("progress").style.width = (p * 100) + "%";
+}, { passive: true });
+</script>
+</body>
+</html>

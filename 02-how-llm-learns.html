@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMの仕組み Vol.2 — どうやって賢くなるのか(学習編)</title>
+<style>
+  :root {
+    --bg: #0b0e1c;
+    --panel: #12172e;
+    --panel2: #0e1326;
+    --ink: #e8ecf8;
+    --sub: #9aa3bf;
+    --blue: #58c4dd;
+    --deep-blue: #2f7ea8;
+    --yellow: #ffd35a;
+    --green: #6fe0a8;
+    --red: #ff7b72;
+    --purple: #c792ea;
+    --line: #232a4d;
+    --mono: "SFMono-Regular", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.9;
+    overflow-x: hidden;
+  }
+  #progress {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--yellow));
+    z-index: 99;
+  }
+
+  .series-nav {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+    padding: 12px 16px; font-size: .85rem;
+    background: rgba(18,23,46,.8); border-bottom: 1px solid var(--line);
+  }
+  .series-nav a { color: var(--blue); text-decoration: none; }
+  .series-nav a:hover { text-decoration: underline; }
+  .series-nav .current { color: var(--yellow); font-weight: 700; }
+  .series-nav .soon { color: #5b6482; }
+
+  /* ---------- hero ---------- */
+  #hero {
+    position: relative;
+    min-height: 74vh;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  #heroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-inner { position: relative; z-index: 1; padding: 40px 20px; }
+  .hero-inner .kicker { color: var(--yellow); font-weight: 700; letter-spacing: .3em; font-size: .85rem; }
+  .hero-inner h1 {
+    font-size: clamp(1.7rem, 5vw, 3rem);
+    margin: 14px 0 18px;
+    text-shadow: 0 0 30px rgba(88,196,221,.45);
+  }
+  .hero-inner p { color: var(--sub); max-width: 580px; margin: 0 auto; }
+  .hero-inner .scroll-hint { margin-top: 46px; color: var(--blue); font-size: .85rem; animation: bob 2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(8px);} }
+
+  /* ---------- scenes ---------- */
+  main { max-width: 900px; margin: 0 auto; padding: 0 18px 100px; }
+  .scene { margin-top: 90px; }
+  .chapter { color: var(--yellow); font-weight: 700; font-size: .9rem; letter-spacing: .2em; }
+  .scene h2 {
+    font-size: clamp(1.3rem, 3.4vw, 1.7rem);
+    margin: 8px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--line);
+  }
+  .scene > p { color: #c6cde3; max-width: 760px; }
+  .scene > p + p { margin-top: 8px; }
+  .scene em { font-style: normal; color: var(--yellow); font-weight: 700; }
+  .scene strong { color: var(--blue); }
+
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(rgba(88,196,221,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(88,196,221,.045) 1px, transparent 1px),
+      var(--panel);
+    background-size: 26px 26px, 26px 26px, auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.35);
+  }
+  .panel-title { font-size: .78rem; font-weight: 700; color: var(--purple); letter-spacing: .15em; margin-bottom: 14px; }
+  .note {
+    margin-top: 16px; padding: 12px 16px;
+    background: rgba(255,211,90,.07);
+    border-left: 3px solid var(--yellow);
+    border-radius: 6px;
+    font-size: .92rem; color: #d9dcef;
+  }
+  .note b { color: var(--yellow); }
+
+  button {
+    font-family: inherit; font-size: .92rem; font-weight: 700;
+    padding: 9px 20px; border-radius: 9px; cursor: pointer;
+    background: var(--blue); color: #06202b; border: none;
+    transition: transform .12s, box-shadow .12s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(88,196,221,.4); }
+  button:disabled { background: #3a4266; color: #8b93b5; cursor: default; transform: none; box-shadow: none; }
+  button.ghost { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  input[type=range] { flex: 1; accent-color: var(--yellow); }
+
+  /* ---------- bar chart ---------- */
+  .bchart .brow { display: flex; align-items: center; gap: 10px; margin: 7px 0; transition: opacity .4s; }
+  .bchart .blabel {
+    width: 128px; flex-shrink: 0; text-align: right;
+    font-family: var(--mono); font-size: .95rem; white-space: nowrap; overflow: hidden;
+  }
+  .bchart .btrack { flex: 1; height: 26px; background: rgba(255,255,255,.05); border-radius: 6px; overflow: hidden; position: relative; }
+  .bchart .bfill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--deep-blue), var(--blue));
+    border-radius: 6px;
+    transition: width .65s cubic-bezier(.25,.9,.3,1), background .3s;
+    box-shadow: 0 0 14px rgba(88,196,221,.25);
+  }
+  .bchart .brow.winner .bfill {
+    background: linear-gradient(90deg, #2f9e6e, var(--green));
+    box-shadow: 0 0 18px rgba(111,224,168,.5);
+  }
+  .bchart .brow.wrong .bfill {
+    background: linear-gradient(90deg, #a8404a, var(--red));
+    box-shadow: 0 0 18px rgba(255,123,114,.45);
+  }
+  .bchart .bpct { position: absolute; right: 9px; top: 0; line-height: 26px; font-size: .74rem; font-weight: 700; color: #eaf7ff; }
+
+  /* ---------- §1 quiz ---------- */
+  .quiz-line {
+    font-size: clamp(1.2rem, 3.6vw, 1.7rem);
+    text-align: center; line-height: 2.1; margin-bottom: 8px; min-height: 2.4em;
+  }
+  .quiz-line .mask {
+    display: inline-block; background: #3a4266; color: #3a4266;
+    border-radius: 8px; padding: 2px 10px; letter-spacing: .1em;
+    animation: maskPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes maskPulse { 0%,100% { box-shadow: 0 0 0 rgba(255,211,90,0);} 50% { box-shadow: 0 0 16px rgba(255,211,90,.5);} }
+  .quiz-line .revealed {
+    display: inline-block; background: rgba(111,224,168,.15); color: var(--green);
+    border: 1.5px solid var(--green); border-radius: 8px; padding: 2px 10px; font-weight: 700;
+    animation: tokIn .5s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  @keyframes tokIn { from { transform: translateY(14px) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+  .quiz-status { text-align: center; color: var(--sub); font-size: .88rem; min-height: 3.2em; margin-bottom: 10px; }
+  .quiz-status b { color: var(--yellow); }
+
+  /* ---------- canvases ---------- */
+  .viz-canvas { display: block; width: 100%; border-radius: 8px; }
+  .readout {
+    display: flex; gap: 24px; flex-wrap: wrap; justify-content: center;
+    font-family: var(--mono); font-size: .95rem; margin-top: 12px;
+  }
+  .readout .ro { color: var(--sub); }
+  .readout .ro b { color: var(--yellow); font-size: 1.25rem; }
+  .slider-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+  .slider-row .lbl { font-size: .85rem; color: var(--sub); white-space: nowrap; }
+  .slider-row .val { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--yellow); width: 74px; text-align: center; }
+
+  /* ---------- §4 params ---------- */
+  .param-counter { text-align: center; font-family: var(--mono); margin-top: 12px; color: var(--sub); font-size: .9rem; }
+  .param-counter b { color: var(--green); font-size: 1.2rem; }
+  .scale-list { margin-top: 10px; font-size: .9rem; color: #c6cde3; }
+  .scale-list li { margin-left: 1.4em; }
+  .scale-list b { color: var(--yellow); font-family: var(--mono); }
+
+  /* ---------- §5 growth ---------- */
+  .growth-output {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; min-height: 110px; font-size: 1.05rem; line-height: 2; margin-top: 14px;
+  }
+  .growth-output .prompt { color: var(--yellow); font-weight: 700; }
+  .growth-output .gen { color: var(--ink); }
+  .growth-stage { text-align: center; font-size: .95rem; font-weight: 700; color: var(--blue); min-height: 1.9em; margin-top: 10px; }
+
+  /* ---------- §6 rlhf ---------- */
+  .vs-wrap { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+  .vs-card {
+    flex: 1; min-width: 260px;
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 12px; padding: 16px;
+    font-size: .95rem;
+  }
+  .vs-card .tag { font-size: .75rem; font-weight: 700; letter-spacing: .1em; margin-bottom: 8px; }
+  .vs-card.base .tag { color: var(--red); }
+  .vs-card.tuned .tag { color: var(--green); }
+  .vs-q { font-weight: 700; color: var(--yellow); margin-bottom: 10px; text-align: center; font-size: 1.05rem; }
+
+  .pref-card {
+    flex: 1; min-width: 260px; cursor: pointer;
+    background: var(--panel2); border: 2px solid var(--line); border-radius: 12px; padding: 16px;
+    font-size: .95rem; transition: border-color .2s, transform .15s, box-shadow .2s;
+  }
+  .pref-card:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 0 20px rgba(88,196,221,.25); }
+  .pref-card.chosen { border-color: var(--green); box-shadow: 0 0 22px rgba(111,224,168,.4); }
+  .pref-card .tag { font-size: .75rem; font-weight: 700; color: var(--purple); margin-bottom: 8px; }
+  .pref-progress { margin-top: 14px; font-size: .9rem; color: var(--sub); min-height: 1.9em; text-align: center; }
+  .pref-progress b { color: var(--green); }
+
+  /* ---------- summary ---------- */
+  table.myth { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .92rem; }
+  table.myth th, table.myth td { border: 1px solid var(--line); padding: 11px 14px; text-align: left; vertical-align: top; }
+  table.myth th { background: rgba(255,123,114,.08); color: var(--red); width: 40%; font-weight: 600; }
+  table.myth td { color: #cdd4ea; }
+  table.myth td b { color: var(--green); }
+
+  footer { text-align: center; color: #5b6482; font-size: .82rem; padding: 40px 0 60px; }
+  footer a { color: var(--blue); }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav class="series-nav">
+  <a href="index.html">シリーズ「LLMの仕組み」(目次)</a>
+  <a href="01-how-llm-works.html">① 推論編</a>
+  <span class="current">② 学習編(このページ)</span>
+  <a href="03-how-llm-transformer.html">③ Transformer深掘り編</a>
+  <a href="04-how-llm-prompt.html">④ プロンプト編</a>
+  <a href="05-how-llm-limits.html">⑤ 限界と対策編</a>
+  <a href="06-how-llm-apps.html">⑥ 活用編</a>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header id="hero">
+  <canvas id="heroCanvas"></canvas>
+  <div class="hero-inner">
+    <div class="kicker">VISUAL GUIDE — VOL.2</div>
+    <h1>LLMはどうやって<br>賢くなるのか</h1>
+    <p>前回は「できあがったモデルが文章を書く仕組み」でした。今回はその前段階——<strong>何もできないモデルが、膨大な文章から学ぶ過程</strong>を見ていきます。</p>
+    <div class="scroll-hint">▼ スクロールして始める</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ §1 ============ -->
+  <section class="scene" id="sc1">
+    <div class="chapter">§1 — 学習の正体</div>
+    <h2>教材は「続きあてクイズ」を100兆問</h2>
+    <p>LLMの学習(事前学習)の仕組みは、非常に単純です。インターネット上の文章を途中まで見せて、「<em>次に来る言葉を当てられるか?</em>」というクイズをひたすら解かせる、というものです。Vol.1の「次の言葉あてゲーム」の練習を膨大な文章で繰り返すのが、学習の正体です。人間が問題を作る必要はなく、<strong>どんな文章も、区切る場所を変えれば何問にもなる</strong>のがポイントです。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:学習中のモデルが「続きあてクイズ」に挑戦する様子</div>
+      <div class="quiz-line" id="quizLine"></div>
+      <div class="quiz-status" id="quizStatus"></div>
+      <div class="bchart" id="quizBars"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>当たっても外れても「正解にどれだけの確率を付けていたか」が採点されます。この採点結果(損失)が、次のセクションの主役です。</div>
+  </section>
+
+  <!-- ============ §2 ============ -->
+  <section class="scene" id="sc2">
+    <div class="chapter">§2 — 採点方法</div>
+    <h2>損失:どれくらい外したかを1つの数値にする</h2>
+    <p>採点はシンプルで、「<strong>正解のトークンに、モデルが何%の確率を付けていたか</strong>」だけを見ます。それを<strong>損失(loss)</strong>という数値に変換します。特徴は、<em>自信をもって外したときほど罰が急激に重くなる</em>ことです。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:スライダーで「正解に付けた確率」を動かして、罰の重さを見る</div>
+      <div class="slider-row">
+        <span class="lbl">正解に付けた確率</span>
+        <input type="range" id="probSlider" min="1" max="99" value="55">
+        <span class="val" id="probVal">55%</span>
+      </div>
+      <canvas id="lossCanvas" class="viz-canvas" style="height:300px;"></canvas>
+      <div class="readout">
+        <span class="ro">損失 = <b id="lossVal">0.60</b></span>
+        <span class="ro" id="lossComment"></span>
+      </div>
+    </div>
+    <div class="note"><b>ポイント:</b>確率99%なら損失はほぼ0、確率1%なら損失4.6と急増します。この「外れ具合」を小さくする方向に、モデルの中身を毎回少しずつ直します。どう直すかを次のセクションで見ていきます。</div>
+  </section>
+
+  <!-- ============ §3 ============ -->
+  <section class="scene" id="sc3">
+    <div class="chapter">§3 — 直し方</div>
+    <h2>勾配降下:損失の坂を転がり降りる</h2>
+    <p>モデルの設定値(パラメータ)を横軸、損失を縦軸にすると「地形」ができます。学習とは、この地形で<em>いま立っている場所の傾きを調べ、低い方へ一歩ずつ降りる</em>こと。これを<strong>勾配降下法</strong>と呼びます。一歩の大きさが<strong>学習率</strong>です。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:ボールを転がして、損失の谷を探す</div>
+      <div class="slider-row">
+        <span class="lbl">学習率(一歩の大きさ)</span>
+        <input type="range" id="lrSlider" min="0.05" max="1.3" step="0.05" value="0.3">
+        <span class="val" id="lrVal">0.30</span>
+      </div>
+      <canvas id="gdCanvas" class="viz-canvas" style="height:380px;"></canvas>
+      <div class="readout">
+        <span class="ro">損失 <b id="gdLoss">–</b></span>
+        <span class="ro">傾き <b id="gdGrad">–</b></span>
+        <span class="ro" id="gdMsg"></span>
+      </div>
+      <div class="btn-row">
+        <button onclick="gdStep()">▼ 1ステップ降りる</button>
+        <button onclick="gdAuto()" id="gdAutoBtn">▶ 自動で転がす</button>
+        <button class="ghost" onclick="gdReset()">ボールを置き直す</button>
+      </div>
+    </div>
+    <div class="note"><b>実験のポイント:</b>①学習率0.3で自動→素直に谷へ。②学習率1.2で自動→<b>飛び跳ねて発散</b>。③右側の浅い谷に落ちたら置き直し→<b>スタート地点で結果が変わる</b>(局所解)。実際の学習で起きる現象が、この1画面に集約されています。</div>
+  </section>
+
+  <!-- ============ §4 ============ -->
+  <section class="scene" id="sc4">
+    <div class="chapter">§4 — 何を直しているのか</div>
+    <h2>正体は「数千億個のダイヤル」</h2>
+    <p>坂を降りるとき、実際に動かしているのがモデルの<strong>パラメータ(重み)</strong>です。ニューラルネットの中の膨大な「調整ダイヤル」で、1ステップごとに全ダイヤルがほんの少しずつ回ります。下の画面では、バラバラだった重みが学習で模様(=知識のパターン)に揃っていく様子を表しています。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:736個の重みが学習ステップごとに調整されていく</div>
+      <canvas id="paramCanvas" class="viz-canvas" style="height:260px;"></canvas>
+      <div class="param-counter">調整ステップ: <b id="paramStep">0</b> 回(1ステップで<b>全ダイヤル</b>が同時に少しずつ動く)</div>
+    </div>
+    <ul class="scale-list">
+      <li>この画面のダイヤル数: <b>736 個</b></li>
+      <li>GPT-3: <b>1,750億 個</b> — 1秒に1個ずつ回すと約5,500年ぶん</li>
+      <li>最新の大規模モデル: <b>兆(1,000,000,000,000)規模</b>と言われる</li>
+    </ul>
+    <div class="note"><b>ポイント:</b>人間がルールを書き込む場所はどこにもありません。「クイズの成績が上がる方向」へダイヤルが自動で回った結果、文法も知識も推論力も<b>自然に</b>獲得されていきます。</div>
+  </section>
+
+  <!-- ============ §5 ============ -->
+  <section class="scene" id="sc5">
+    <div class="chapter">§5 — 成長の記録</div>
+    <h2>学習が進むと、出力はこう変わる</h2>
+    <p>損失が下がるにつれて、モデルの出力は「でたらめな記号 → 単語の切れはし → たどたどしい文 → 流ちょうな文」と成長します。スライダーで学習の進み具合を動かして、同じ書き出しに対する出力の変化を見てください。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:学習の進行度を動かす(▶で自動再生)</div>
+      <div class="slider-row">
+        <span class="lbl">学習の進行</span>
+        <input type="range" id="growthSlider" min="0" max="100" value="0">
+        <span class="val" id="growthVal">0%</span>
+      </div>
+      <canvas id="growthCanvas" class="viz-canvas" style="height:200px;"></canvas>
+      <div class="growth-output"><span class="prompt">むかしむかし</span><span class="gen" id="growthText"></span></div>
+      <div class="growth-stage" id="growthStage"></div>
+      <div class="btn-row"><button id="growthBtn" onclick="growthAuto()">▶ 成長を自動再生</button></div>
+    </div>
+    <div class="note"><b>ポイント:</b>能力は一気にではなく段階的に現れます。「文字→単語→文法→意味」の順に獲得されていくのは、実際の学習曲線でも観察される現象です。</div>
+  </section>
+
+  <!-- ============ §6 ============ -->
+  <section class="scene" id="sc6">
+    <div class="chapter">§6 — しつけ</div>
+    <h2>「続き予測マシン」から「アシスタント」へ</h2>
+    <p>ここまでの事前学習だけでは、モデルは<em>文章の続きを書く機械</em>にすぎません。質問しても答えず、続きを書いてしまいます。そこで仕上げに、<strong>指示への従い方を教える追加学習(インストラクション・チューニング)</strong>と、<strong>人間の好みで回答を選別するフィードバック学習(RLHF)</strong>を行います。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 比較:同じ入力への、しつけ前としつけ後の反応(自動で例が切り替わります)</div>
+      <div class="vs-q" id="vsQ"></div>
+      <div class="vs-wrap">
+        <div class="vs-card base"><div class="tag">■ しつけ前(続きを予測するだけ)</div><div id="vsBase"></div></div>
+        <div class="vs-card tuned"><div class="tag">■ しつけ後(指示に答える)</div><div id="vsTuned"></div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:フィードバック担当者として、良いと思う回答をクリックしてください(全3問)</div>
+      <div class="vs-q" id="prefQ"></div>
+      <div class="vs-wrap" id="prefWrap"></div>
+      <div class="pref-progress" id="prefProgress"></div>
+      <div class="bchart" id="prefBars" style="margin-top:10px;"></div>
+    </div>
+    <div class="note"><b>ポイント:</b>ChatGPTやClaudeが「丁寧に、指示に沿って」答えるのは、この仕上げ工程のおかげ。つまり普段話している相手は「事前学習の知識」+「人間のフィードバックで整えた振る舞い」の合わせ技です。</div>
+  </section>
+
+  <!-- ============ §7 ============ -->
+  <section class="scene" id="sc7">
+    <div class="chapter">§7 — まとめ</div>
+    <h2>よくある誤解と、正しい理解</h2>
+    <table class="myth">
+      <tr><th>「AIは会話しながら学習し続けている」</th>
+          <td>学習(重みの更新)は<b>リリース前に完了</b>している。会話中に覚えているように見えるのは、文脈を一時的に参照しているだけで、重み(ダイヤル)は一切変化していない。</td></tr>
+      <tr><th>「人間が知識やルールをプログラムしている」</th>
+          <td>誰も書き込んでいない。<b>続きあてクイズの成績を上げる方向へ重みが自動調整された結果</b>、文法も知識も勝手に宿った。</td></tr>
+      <tr><th>「学習=文章の丸暗記」</th>
+          <td>丸暗記ではなく<b>パターンの圧縮と一般化</b>。だから見たことのない文も書けるし、逆に記憶が曖昧で事実を間違えることもある。</td></tr>
+      <tr><th>「大きいモデルほど必ず賢い」</th>
+          <td>規模を上げると性能が伸びる傾向(スケーリング則)はあるが、<b>データの質と仕上げのチューニング</b>も同じくらい効く。</td></tr>
+    </table>
+    <div class="note" style="margin-top:22px;"><b>今日のキーワード:</b>事前学習 / 損失(loss) / 勾配降下法 / 学習率 / パラメータ(重み) / 局所解 / インストラクション・チューニング / RLHF</div>
+  </section>
+
+</main>
+
+<footer>学習教材「LLMの仕組み」Vol.2 学習編 ｜ 図中の確率・数値はすべて教材用に作成したものです ｜ <a href="index.html">目次へ</a></footer>
+
+<script>
+/* ================================================================
+   共通ユーティリティ(Vol.1と同じ設計)
+   ================================================================ */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const visible = {};
+const io = new IntersectionObserver(
+  es => es.forEach(e => visible[e.target.id] = e.isIntersecting),
+  { threshold: 0.2 }
+);
+document.querySelectorAll(".scene, #hero").forEach(s => io.observe(s));
+async function whenVisible(id) { while (!visible[id]) await sleep(250); }
+
+function fitCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: r.width, H: r.height };
+}
+
+class BarChart {
+  constructor(container, n) {
+    this.rows = [];
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement("div");
+      row.className = "brow";
+      row.innerHTML = `<div class="blabel"></div>
+        <div style="flex:1"><div class="btrack"><div class="bfill"></div><span class="bpct"></span></div></div>`;
+      container.appendChild(row);
+      this.rows.push(row);
+    }
+  }
+  update(data, winnerLabel = null, wrongLabel = null) {
+    const maxP = Math.max(...data.map(d => d[1]), 1e-9);
+    this.rows.forEach((row, i) => {
+      if (i < data.length) {
+        const [w, p] = data[i];
+        row.style.opacity = 1;
+        row.querySelector(".blabel").textContent = w;
+        row.querySelector(".bfill").style.width = (p / maxP * 100) + "%";
+        row.querySelector(".bpct").textContent = p >= 0.005 ? (p * 100).toFixed(1) + "%" : "≈0%";
+        row.classList.toggle("winner", w === winnerLabel);
+        row.classList.toggle("wrong", w === wrongLabel);
+      } else {
+        row.style.opacity = 0;
+        row.classList.remove("winner", "wrong");
+      }
+    });
+  }
+}
+
+/* ================================================================
+   HERO:損失カーブを転がり降りるボール
+   ================================================================ */
+(function heroLoss() {
+  const cv = document.getElementById("heroCanvas");
+  let ctx, W, H;
+  function fit() { ({ ctx, W, H } = fitCanvas(cv)); }
+  fit();
+  window.addEventListener("resize", fit);
+
+  // なだらかに下がる学習曲線(ノイズ付き)。値は「画面上のy位置の割合」(小=上)
+  const f = t => 0.22 + 0.55 * (1 - Math.exp(-t * 3.2)) + 0.03 * Math.sin(t * 40) * Math.exp(-t * 2);
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible["hero"]) return;
+    ctx.clearRect(0, 0, W, H);
+    const t = (now / 9000) % 1.15;   // 描画の進行(少し止まってループ)
+    const prog = Math.min(t, 1);
+    ctx.strokeStyle = "rgba(88,196,221,.5)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let i = 0; i <= prog * 300; i++) {
+      const u = i / 300;
+      const x = u * W * 0.86 + W * 0.07;
+      const y = f(u) * H * 0.8 + H * 0.08;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // 現在地のボール
+    const bx = prog * W * 0.86 + W * 0.07;
+    const by = f(prog) * H * 0.8 + H * 0.08;
+    const g = ctx.createRadialGradient(bx, by, 0, bx, by, 16);
+    g.addColorStop(0, "rgba(255,211,90,.95)");
+    g.addColorStop(1, "rgba(255,211,90,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(bx, by, 16, 0, 6.28); ctx.fill();
+    // 軸ラベル
+    ctx.fillStyle = "rgba(154,163,191,.6)";
+    ctx.font = "12px sans-serif";
+    ctx.fillText("損失(どれだけ外すか)", 14, 22);
+    ctx.fillText("学習ステップ →", W - 110, H - 12);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ================================================================
+   §1:続きあてクイズ自動再生
+   ================================================================ */
+const QUIZ = [
+  { pre: "今日は いい ", ans: "天気",
+    probs: [["天気", 0.55], ["気分", 0.20], ["ねこ", 0.15], ["会議", 0.10]] },
+  { pre: "ねこ が ", ans: "ないて",
+    probs: [["ねむって", 0.38], ["ないて", 0.34], ["とんで", 0.18], ["うたって", 0.10]] },
+  { pre: "りんご は 赤くて ", ans: "あまい",
+    probs: [["おいしい", 0.45], ["あまい", 0.30], ["まるい", 0.15], ["はやい", 0.10]] },
+  { pre: "1 + 1 = ", ans: "2",
+    probs: [["2", 0.85], ["3", 0.08], ["10", 0.05], ["に", 0.02]] },
+];
+
+(async function quizLoop() {
+  const line = document.getElementById("quizLine");
+  const status = document.getElementById("quizStatus");
+  const chart = new BarChart(document.getElementById("quizBars"), 4);
+  let qi = 0;
+  while (true) {
+    await whenVisible("sc1");
+    const q = QUIZ[qi % QUIZ.length]; qi++;
+    line.innerHTML = q.pre + '<span class="mask">???</span>';
+    status.innerHTML = "文章を途中で区切って出題します。モデルが「次の言葉」の候補に確率を割り振ります…";
+    chart.update(q.probs);
+    await sleep(1600);
+
+    const pAns = q.probs.find(p => p[0] === q.ans)[1];
+    const top = q.probs[0][0];
+    const loss = -Math.log(pAns);
+    line.innerHTML = q.pre + '<span class="revealed">' + q.ans + "</span>";
+    chart.update(q.probs, q.ans, top !== q.ans ? top : null);
+    status.innerHTML = (top === q.ans
+      ? "1位で正解。ただし正解に付けた確率は " + (pAns * 100).toFixed(0) + "% でした。"
+      : "1位は「" + top + "」で不正解。正解の「" + q.ans + "」には " + (pAns * 100).toFixed(0) + "% しか付けていませんでした。")
+      + " → 損失 <b>" + loss.toFixed(2) + "</b> に応じて重みを調整します。";
+    await sleep(2800);
+  }
+})();
+
+/* ================================================================
+   §2:損失カーブ(-log p)
+   ================================================================ */
+(function lossScene() {
+  const cv = document.getElementById("lossCanvas");
+  const slider = document.getElementById("probSlider");
+  let ctx, W, H;
+  function fit() { ({ ctx, W, H } = fitCanvas(cv)); draw(); }
+
+  const PAD = 46;
+  const xOf = p => PAD + p * (W - PAD - 20);
+  const yOf = l => H - 34 - (Math.min(l, 5) / 5) * (H - 60);
+
+  function draw() {
+    const p = parseInt(slider.value) / 100;
+    const loss = -Math.log(p);
+    ctx.clearRect(0, 0, W, H);
+    // 軸
+    ctx.strokeStyle = "#3a4266"; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(PAD, 16); ctx.lineTo(PAD, H - 34); ctx.lineTo(W - 14, H - 34);
+    ctx.stroke();
+    ctx.fillStyle = "#9aa3bf"; ctx.font = "12px sans-serif";
+    ctx.fillText("損失(罰の重さ)", 8, 14);
+    ctx.fillText("正解に付けた確率 →", W - 150, H - 10);
+    ctx.fillText("0%", PAD - 6, H - 16);
+    ctx.fillText("100%", W - 42, H - 16);
+    // -log曲線
+    ctx.strokeStyle = "#58c4dd"; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let i = 1; i <= 300; i++) {
+      const u = i / 300;
+      const x = xOf(u), y = yOf(-Math.log(u));
+      i === 1 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // 現在地
+    const x = xOf(p), y = yOf(loss);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(255,211,90,.5)";
+    ctx.beginPath(); ctx.moveTo(x, H - 34); ctx.lineTo(x, y); ctx.lineTo(PAD, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ffd35a";
+    ctx.shadowColor = "#ffd35a"; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(x, y, 8, 0, 6.28); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    document.getElementById("probVal").textContent = (p * 100).toFixed(0) + "%";
+    document.getElementById("lossVal").textContent = loss.toFixed(2);
+    const c = document.getElementById("lossComment");
+    if (p >= 0.9) c.textContent = "損失はごく小さく、重みの調整もわずかです。";
+    else if (p >= 0.4) c.textContent = "中程度の損失で、相応の調整が入ります。";
+    else if (p >= 0.1) c.textContent = "大きく外れているため、しっかり調整されます。";
+    else c.textContent = "大きな外れです。損失が急激に増え、大きく調整されます。";
+  }
+  fit();
+  window.addEventListener("resize", fit);
+  slider.addEventListener("input", draw);
+})();
+
+/* ================================================================
+   §3:勾配降下の谷
+   ================================================================ */
+const gd = { x: 2.9, trail: [], anim: null, diverged: false, autoTimer: null };
+const gdF = x => x ** 4 / 20 - x * x / 2 + 0.1 * x + 3.2;
+const gdG = x => x ** 3 / 5 - x + 0.1;
+let gdCtx, gdW, gdH;
+
+const gdXpix = x => (x + 3.2) / 6.4 * (gdW - 30) + 15;
+const gdYpix = y => gdH - 40 - (y - 1.55) * (gdH - 90) / 2.2;
+
+function gdDraw() {
+  const ctx = gdCtx;
+  ctx.clearRect(0, 0, gdW, gdH);
+  // 地形
+  ctx.strokeStyle = "#58c4dd"; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i = 0; i <= 320; i++) {
+    const x = -3.2 + i / 320 * 6.4;
+    const px = gdXpix(x), py = gdYpix(gdF(x));
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#9aa3bf"; ctx.font = "12px sans-serif";
+  ctx.fillText("損失", 14, 20);
+  ctx.fillText("パラメータの値 →", gdW - 128, gdH - 10);
+  ctx.fillStyle = "rgba(154,163,191,.6)";
+  ctx.fillText("深い谷(良い設定)", gdXpix(-2.3) - 48, gdYpix(gdF(-2.26)) + 30);
+  ctx.fillText("浅い谷(局所解)", gdXpix(2.2) - 42, gdYpix(gdF(2.24)) + 30);
+  // 足あと
+  gd.trail.forEach((tx, i) => {
+    const a = (i + 1) / gd.trail.length * 0.5;
+    ctx.fillStyle = `rgba(255,211,90,${a})`;
+    ctx.beginPath(); ctx.arc(gdXpix(tx), gdYpix(gdF(tx)), 4, 0, 6.28); ctx.fill();
+  });
+  // 傾き矢印(降りる方向)
+  const x = gd.x, g = gdG(x);
+  const bx = gdXpix(x), by = gdYpix(gdF(x));
+  if (!gd.diverged && Math.abs(g) > 0.03) {
+    const dir = -Math.sign(g);
+    const len = Math.min(Math.abs(g) * 55, 80);
+    ctx.strokeStyle = "#6fe0a8"; ctx.fillStyle = "#6fe0a8"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(bx, by - 22); ctx.lineTo(bx + dir * len, by - 22); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bx + dir * (len + 9), by - 22);
+    ctx.lineTo(bx + dir * len, by - 28);
+    ctx.lineTo(bx + dir * len, by - 16);
+    ctx.fill();
+  }
+  // ボール
+  const grd = ctx.createRadialGradient(bx, by, 0, bx, by, 13);
+  grd.addColorStop(0, "#ffe9a8"); grd.addColorStop(1, "#ffd35a");
+  ctx.fillStyle = grd;
+  ctx.shadowColor = "#ffd35a"; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.arc(bx, by, 10, 0, 6.28); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  document.getElementById("gdLoss").textContent = gdF(x).toFixed(2);
+  document.getElementById("gdGrad").textContent = g.toFixed(2);
+}
+
+function gdStep() {
+  if (gd.diverged) return;
+  const lr = parseFloat(document.getElementById("lrSlider").value);
+  const from = gd.x;
+  let to = from - lr * gdG(from);
+  gd.trail.push(from);
+  if (gd.trail.length > 40) gd.trail.shift();
+  const msg = document.getElementById("gdMsg");
+  if (Math.abs(to) > 3.2) {
+    gd.diverged = true;
+    to = Math.sign(to) * 3.15;
+    msg.textContent = "発散しました。一歩が大きすぎて谷から飛び出しています。学習率を下げて、ボールを置き直してください。";
+    msg.style.color = "#ff7b72";
+    clearInterval(gd.autoTimer); gd.autoTimer = null;
+    document.getElementById("gdAutoBtn").textContent = "▶ 自動で転がす";
+  } else if (Math.abs(gdG(to)) < 0.03) {
+    msg.textContent = "谷底に到達しました。傾きがほぼ0となり、調整が完了した状態(収束)です。";
+    msg.style.color = "#6fe0a8";
+  } else {
+    msg.textContent = "傾きの逆方向へ「学習率 × 傾き」の分だけ移動します。";
+    msg.style.color = "#9aa3bf";
+  }
+  // なめらかに移動(タイマー駆動なのでプレビューでも動く)
+  const t0 = performance.now();
+  clearInterval(gd.anim);
+  gd.anim = setInterval(() => {
+    const k = Math.min((performance.now() - t0) / 240, 1);
+    const e = 1 - (1 - k) * (1 - k);
+    gd.x = from + (to - from) * e;
+    gdDraw();
+    if (k >= 1) clearInterval(gd.anim);
+  }, 25);
+}
+
+function gdAuto() {
+  const btn = document.getElementById("gdAutoBtn");
+  if (gd.autoTimer) {
+    clearInterval(gd.autoTimer); gd.autoTimer = null;
+    btn.textContent = "▶ 自動で転がす";
+    return;
+  }
+  btn.textContent = "■ 停止";
+  gd.autoTimer = setInterval(() => {
+    if (gd.diverged || Math.abs(gdG(gd.x)) < 0.03) {
+      clearInterval(gd.autoTimer); gd.autoTimer = null;
+      btn.textContent = "▶ 自動で転がす";
+      return;
+    }
+    gdStep();
+  }, 420);
+}
+
+function gdReset() {
+  clearInterval(gd.autoTimer); gd.autoTimer = null;
+  document.getElementById("gdAutoBtn").textContent = "▶ 自動で転がす";
+  gd.x = (Math.random() * 6 - 3) * 0.95;
+  gd.trail = [];
+  gd.diverged = false;
+  const msg = document.getElementById("gdMsg");
+  msg.textContent = "新しいスタート地点に置きました。";
+  msg.style.color = "#9aa3bf";
+  gdDraw();
+}
+
+(function gdInit() {
+  const cv = document.getElementById("gdCanvas");
+  function fit() { ({ ctx: gdCtx, W: gdW, H: gdH } = fitCanvas(cv)); gdDraw(); }
+  fit();
+  window.addEventListener("resize", fit);
+  document.getElementById("lrSlider").addEventListener("input", () => {
+    document.getElementById("lrVal").textContent = parseFloat(document.getElementById("lrSlider").value).toFixed(2);
+  });
+})();
+
+/* ================================================================
+   §4:パラメータ(重み)のダイヤル海
+   ================================================================ */
+(function paramScene() {
+  const cv = document.getElementById("paramCanvas");
+  let ctx, W, H;
+  const COLS = 46, ROWS = 16, N = COLS * ROWS;
+  let vals = [], step = 0;
+  const target = i => {
+    const c = i % COLS, r = Math.floor(i / COLS);
+    return 0.5 + 0.5 * Math.sin(c / 4.6) * Math.cos(r / 2.6);
+  };
+  function reset() { vals = Array.from({ length: N }, () => Math.random()); step = 0; }
+  reset();
+
+  function fit() { ({ ctx, W, H } = fitCanvas(cv)); draw(); }
+
+  function color(v) {
+    // 低い値=深い青、高い値=シアン〜黄色
+    const h = 225 - v * 180, l = 28 + v * 34;
+    return `hsl(${h},72%,${l}%)`;
+  }
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const cw = W / COLS, ch = H / ROWS;
+    for (let i = 0; i < N; i++) {
+      const c = i % COLS, r = Math.floor(i / COLS);
+      ctx.fillStyle = color(Math.max(0, Math.min(1, vals[i])));
+      ctx.beginPath();
+      ctx.arc(c * cw + cw / 2, r * ch + ch / 2, Math.min(cw, ch) * 0.32, 0, 6.28);
+      ctx.fill();
+    }
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  setInterval(() => {
+    if (!visible["sc4"]) return;
+    step++;
+    for (let i = 0; i < N; i++) {
+      vals[i] += (target(i) - vals[i]) * 0.055 + (Math.random() - 0.5) * 0.035;
+    }
+    if (step > 220) reset();
+    document.getElementById("paramStep").textContent = step;
+    draw();
+  }, 220);
+})();
+
+/* ================================================================
+   §5:成長タイムライン
+   ================================================================ */
+const GROWTH_STAGES = [
+  { min: 0,  label: "ステップ0:完全にランダム。文字の規則をまだ何も学んでいない",
+    gen: () => Array.from({ length: 24 }, () =>
+      "ぬ籠?ゃ+w淋ぴ縺ゑ3'&疊ヱ%$🜄"[Math.floor(Math.random() * 20)]).join("") },
+  { min: 10, label: "序盤:頻出する文字と、それらしい並びだけを覚えた段階",
+    gen: () => "しし、たた のの むかしむ かしかし ですです は、、" },
+  { min: 30, label: "中盤:単語は出るが、つなぎ方はまだ正しくない",
+    gen: () => "おじいさん ところ やま いました した。おばあさん かわ です。" },
+  { min: 60, label: "終盤:文法をほぼ獲得。まだ少しぎこちない",
+    gen: () => "、あるところに おじいさんが いました。おじいさんは やまへ 行って、しばかりを しました。" },
+  { min: 85, label: "学習完了:流ちょうで自然な文章",
+    gen: () => "、あるところにおじいさんとおばあさんがいました。おじいさんはやまへしばかりに、おばあさんはかわへせんたくに行きました。" },
+];
+const growthLoss = t => 4.5 * Math.exp(-t / 28) + 0.4;
+let growthTimer = null;
+
+(function growthScene() {
+  const cv = document.getElementById("growthCanvas");
+  const slider = document.getElementById("growthSlider");
+  let ctx, W, H;
+
+  function fit() { ({ ctx, W, H } = fitCanvas(cv)); update(); }
+
+  function update() {
+    const t = parseInt(slider.value);
+    document.getElementById("growthVal").textContent = t + "%";
+    // 損失カーブ+現在地
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = "#3a4266"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(36, 12); ctx.lineTo(36, H - 26); ctx.lineTo(W - 12, H - 26); ctx.stroke();
+    ctx.fillStyle = "#9aa3bf"; ctx.font = "11px sans-serif";
+    ctx.fillText("損失", 6, 16);
+    ctx.fillText("学習の進行 →", W - 96, H - 8);
+    ctx.strokeStyle = "#58c4dd"; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let i = 0; i <= 200; i++) {
+      const u = i / 2;
+      const x = 36 + u / 100 * (W - 56);
+      const y = H - 26 - (growthLoss(u) - 0.3) / 4.7 * (H - 44);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    const mx = 36 + t / 100 * (W - 56);
+    const my = H - 26 - (growthLoss(t) - 0.3) / 4.7 * (H - 44);
+    ctx.fillStyle = "#ffd35a";
+    ctx.shadowColor = "#ffd35a"; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.arc(mx, my, 7, 0, 6.28); ctx.fill();
+    ctx.shadowBlur = 0;
+    // 出力テキスト
+    const stage = [...GROWTH_STAGES].reverse().find(s => t >= s.min);
+    document.getElementById("growthText").textContent = stage.gen();
+    document.getElementById("growthStage").textContent = stage.label + "(損失 " + growthLoss(t).toFixed(2) + ")";
+  }
+  fit();
+  window.addEventListener("resize", fit);
+  slider.addEventListener("input", update);
+  window.__growthUpdate = update;
+})();
+
+function growthAuto() {
+  const btn = document.getElementById("growthBtn");
+  const slider = document.getElementById("growthSlider");
+  if (growthTimer) {
+    clearInterval(growthTimer); growthTimer = null;
+    btn.textContent = "▶ 成長を自動再生";
+    return;
+  }
+  slider.value = 0;
+  btn.textContent = "■ 停止";
+  growthTimer = setInterval(() => {
+    slider.value = parseInt(slider.value) + 1;
+    window.__growthUpdate();
+    if (parseInt(slider.value) >= 100) {
+      clearInterval(growthTimer); growthTimer = null;
+      btn.textContent = "▶ 成長を自動再生";
+    }
+  }, 90);
+}
+
+/* ================================================================
+   §6:しつけ(比較 + フィードバック体験)
+   ================================================================ */
+const BASE_DEMO = [
+  { q: "「日本の首都は?」",
+    base: "日本の首都は? という問題が昨日のテストに出て、ぼくはあわてて…",
+    tuned: "東京です。" },
+  { q: "「おすすめの本を教えて」",
+    base: "おすすめの本を教えてください。と司書さんにたずねると、彼女は笑って…",
+    tuned: "目的によりますが、はじめてなら読みやすい入門書から紹介しますね。" },
+  { q: "「英語に翻訳して:ねこ」",
+    base: "英語に翻訳して:ねこ、いぬ、とり。という宿題が出た。めんどうだ…",
+    tuned: "cat です。" },
+];
+(function vsLoop() {
+  let i = 0;
+  function show() {
+    const d = BASE_DEMO[i % BASE_DEMO.length]; i++;
+    document.getElementById("vsQ").textContent = d.q;
+    document.getElementById("vsBase").textContent = d.base;
+    document.getElementById("vsTuned").textContent = d.tuned;
+  }
+  show();
+  setInterval(() => { if (visible["sc6"]) show(); }, 4200);
+})();
+
+const PREF_PAIRS = [
+  { q: "「宿題を手伝ってくれる?」",
+    a: "いいよ!まず問題を一緒に読もう。どこまで分かってるか教えて。",
+    b: "宿題は自分でやるものです。以上。" },
+  { q: "「元気が出る一言ちょうだい」",
+    a: "がんばれ。",
+    b: "今日ここまで来ただけで十分えらい!あと一歩だけ進んでみよう。" },
+  { q: "「AIって危なくない?」",
+    a: "ぜんぜん危なくないです。心配しないで。",
+    b: "便利さとリスクの両面があるよ。たとえば…と、根拠つきで説明するね。" },
+];
+let prefIdx = 0, prefCount = 0;
+const prefChart = new BarChart(document.getElementById("prefBars"), 2);
+prefChart.update([["役に立つ丁寧な回答", 0.55], ["そっけない回答", 0.45]]);
+
+function showPrefPair() {
+  const wrap = document.getElementById("prefWrap");
+  if (prefIdx >= PREF_PAIRS.length) {
+    document.getElementById("prefQ").textContent = "フィードバック完了";
+    wrap.innerHTML = "";
+    document.getElementById("prefProgress").innerHTML =
+      "<b>モデルを更新しました。</b>選ばれた傾向の回答が、今後出やすくなります(下のバーが変化します)";
+    prefChart.update([["役に立つ丁寧な回答", 0.88], ["そっけない回答", 0.12]], "役に立つ丁寧な回答");
+    return;
+  }
+  const p = PREF_PAIRS[prefIdx];
+  document.getElementById("prefQ").textContent = p.q;
+  wrap.innerHTML = "";
+  [["A", p.a], ["B", p.b]].forEach(([tag, text]) => {
+    const card = document.createElement("div");
+    card.className = "pref-card";
+    card.innerHTML = `<div class="tag">回答${tag}</div>${text}`;
+    card.onclick = () => {
+      card.classList.add("chosen");
+      prefCount++;
+      document.getElementById("prefProgress").innerHTML =
+        "回答" + tag + " を選択 → この比較データが学習に使われます(<b>" + prefCount + " / 3 件</b>)";
+      prefIdx++;
+      setTimeout(showPrefPair, 900);
+    };
+    wrap.appendChild(card);
+  });
+}
+showPrefPair();
+
+/* ================================================================
+   スクロール進捗バー
+   ================================================================ */
+window.addEventListener("scroll", () => {
+  const p = window.scrollY / (document.body.scrollHeight - innerHeight);
+  document.getElementById("progress").style.width = (p * 100) + "%";
+}, { passive: true });
+</script>
+</body>
+</html>

@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMの仕組み Vol.6 — 活用編:アプリの部品としてのLLM</title>
+<style>
+  :root {
+    --bg: #0b0e1c;
+    --panel: #12172e;
+    --panel2: #0e1326;
+    --ink: #e8ecf8;
+    --sub: #9aa3bf;
+    --blue: #58c4dd;
+    --deep-blue: #2f7ea8;
+    --yellow: #ffd35a;
+    --green: #6fe0a8;
+    --red: #ff7b72;
+    --purple: #c792ea;
+    --line: #232a4d;
+    --mono: "SFMono-Regular", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.9;
+    overflow-x: hidden;
+  }
+  #progress {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--yellow));
+    z-index: 99;
+  }
+  .series-nav {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+    padding: 12px 16px; font-size: .85rem;
+    background: rgba(18,23,46,.8); border-bottom: 1px solid var(--line);
+  }
+  .series-nav a { color: var(--blue); text-decoration: none; }
+  .series-nav a:hover { text-decoration: underline; }
+  .series-nav .current { color: var(--yellow); font-weight: 700; }
+
+  /* ---------- hero ---------- */
+  #hero {
+    position: relative;
+    min-height: 74vh;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  #heroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-inner { position: relative; z-index: 1; padding: 40px 20px; }
+  .hero-inner .kicker { color: var(--yellow); font-weight: 700; letter-spacing: .3em; font-size: .85rem; }
+  .hero-inner h1 {
+    font-size: clamp(1.7rem, 5vw, 3rem);
+    margin: 14px 0 18px;
+    text-shadow: 0 0 30px rgba(88,196,221,.45);
+  }
+  .hero-inner p { color: var(--sub); max-width: 620px; margin: 0 auto; }
+  .hero-inner .scroll-hint { margin-top: 46px; color: var(--blue); font-size: .85rem; animation: bob 2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(8px);} }
+
+  /* ---------- scenes ---------- */
+  main { max-width: 900px; margin: 0 auto; padding: 0 18px 100px; }
+  .scene { margin-top: 90px; }
+  .chapter { color: var(--yellow); font-weight: 700; font-size: .9rem; letter-spacing: .2em; }
+  .scene h2 {
+    font-size: clamp(1.3rem, 3.4vw, 1.7rem);
+    margin: 8px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--line);
+  }
+  .scene > p { color: #c6cde3; max-width: 760px; }
+  .scene > p + p { margin-top: 8px; }
+  .scene em { font-style: normal; color: var(--yellow); font-weight: 700; }
+  .scene strong { color: var(--blue); }
+
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(rgba(88,196,221,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(88,196,221,.045) 1px, transparent 1px),
+      var(--panel);
+    background-size: 26px 26px, 26px 26px, auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.35);
+  }
+  .panel-title { font-size: .78rem; font-weight: 700; color: var(--purple); letter-spacing: .15em; margin-bottom: 14px; }
+  .note {
+    margin-top: 16px; padding: 12px 16px;
+    background: rgba(255,211,90,.07);
+    border-left: 3px solid var(--yellow);
+    border-radius: 6px;
+    font-size: .92rem; color: #d9dcef;
+  }
+  .note b { color: var(--yellow); }
+
+  button {
+    font-family: inherit; font-size: .92rem; font-weight: 700;
+    padding: 9px 20px; border-radius: 9px; cursor: pointer;
+    background: var(--blue); color: #06202b; border: none;
+    transition: transform .12s, box-shadow .12s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(88,196,221,.4); }
+  button:disabled { background: #3a4266; color: #8b93b5; cursor: default; transform: none; box-shadow: none; }
+  button.ghost { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+  button.on { background: var(--yellow); color: #3a2c00; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  /* ---------- §1 API messages ---------- */
+  .api-grid { display: flex; gap: 18px; flex-wrap: wrap; }
+  .api-col { flex: 1; min-width: 280px; }
+  .api-title { font-size: .8rem; font-weight: 700; letter-spacing: .1em; margin-bottom: 10px; color: var(--blue); }
+  .msg-stack { display: flex; flex-direction: column; gap: 8px; min-height: 200px; }
+  .msg {
+    border-radius: 9px; padding: 8px 12px; font-size: .85rem;
+    font-family: var(--mono); line-height: 1.7;
+    animation: tokIn .4s ease both;
+  }
+  @keyframes tokIn { from { transform: translateY(10px) scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
+  .msg .role { font-size: .68rem; font-weight: 700; letter-spacing: .08em; display: block; }
+  .msg.system { background: rgba(199,146,234,.1); border: 1.5px dashed var(--purple); }
+  .msg.system .role { color: var(--purple); }
+  .msg.user { background: rgba(88,196,221,.1); border: 1.5px solid var(--deep-blue); }
+  .msg.user .role { color: var(--blue); }
+  .msg.assistant { background: var(--panel2); border: 1.5px solid var(--line); }
+  .msg.assistant .role { color: var(--green); }
+  .api-status { font-size: .88rem; color: var(--sub); min-height: 2em; margin-top: 12px; }
+
+  /* ---------- §2 structured ---------- */
+  .code-box {
+    background: #0a0d1a; border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 14px 18px; font-family: var(--mono); font-size: .88rem; line-height: 1.9;
+    white-space: pre-wrap; min-height: 8em; transition: border-color .3s;
+  }
+  .code-box.good { border-color: rgba(111,224,168,.5); }
+  .code-box .jkey { color: var(--blue); }
+  .code-box .jval { color: var(--yellow); }
+
+  /* ---------- §3 embedding search ---------- */
+  .viz-canvas { display: block; width: 100%; border-radius: 8px; }
+  .search-result { margin-top: 12px; font-size: .92rem; min-height: 5.4em; }
+  .search-result .hit {
+    display: flex; gap: 10px; align-items: center; margin: 5px 0;
+    animation: tokIn .4s ease both;
+  }
+  .search-result .rank {
+    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(111,224,168,.15); color: var(--green); font-weight: 700; font-size: .8rem;
+    border: 1px solid rgba(111,224,168,.4);
+  }
+  .search-result .dist { color: var(--sub); font-size: .78rem; font-family: var(--mono); }
+
+  /* ---------- §4 tool log / §5 agent ---------- */
+  .tool-log { display: flex; flex-direction: column; gap: 8px; min-height: 100px; }
+  .tl-line {
+    border-radius: 9px; padding: 9px 14px; font-size: .9rem; line-height: 1.8;
+    animation: tokIn .4s ease both;
+  }
+  .tl-line .actor { font-size: .7rem; font-weight: 700; letter-spacing: .08em; display: block; }
+  .tl-line.u { background: rgba(88,196,221,.1); border: 1.5px solid var(--deep-blue); }
+  .tl-line.u .actor { color: var(--blue); }
+  .tl-line.m { background: var(--panel2); border: 1.5px solid var(--line); }
+  .tl-line.m .actor { color: var(--green); }
+  .tl-line.a { background: rgba(255,211,90,.08); border: 1.5px solid rgba(255,211,90,.4); }
+  .tl-line.a .actor { color: var(--yellow); }
+  .tl-line code { font-family: var(--mono); font-size: .84rem; color: var(--yellow); }
+  .loop-svg { display: block; width: 100%; max-width: 680px; margin: 0 auto 14px; }
+  .stage-box { fill: var(--panel2); stroke: #3a4266; stroke-width: 1.5; transition: all .3s; }
+  .stage-box.active { fill: rgba(88,196,221,.18); stroke: var(--blue); filter: drop-shadow(0 0 8px rgba(88,196,221,.6)); }
+  .stage-label { fill: var(--sub); font-size: 13px; transition: fill .3s; }
+  .stage-label.active { fill: var(--blue); font-weight: 700; }
+  .loop-arrow { stroke: #3a4266; stroke-width: 2; fill: none; }
+  .gen-status { font-size: .88rem; color: var(--sub); min-height: 1.9em; margin: 10px 0; }
+
+  /* ---------- §6 series map ---------- */
+  .map-svg { display: block; width: 100%; margin: 8px auto; }
+  .map-node { fill: rgba(88,196,221,.1); stroke: var(--deep-blue); stroke-width: 1.5; transition: all .2s; cursor: pointer; }
+  .map-node:hover { fill: rgba(88,196,221,.25); stroke: var(--blue); }
+  .map-num { fill: var(--blue); font-size: 15px; font-weight: 700; }
+  .map-t { fill: var(--ink); font-size: 12.5px; font-weight: 700; }
+  .map-d { fill: var(--sub); font-size: 10.5px; }
+
+  table.myth { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .92rem; }
+  table.myth th, table.myth td { border: 1px solid var(--line); padding: 11px 14px; text-align: left; vertical-align: top; }
+  table.myth th { background: rgba(255,123,114,.08); color: var(--red); width: 40%; font-weight: 600; }
+  table.myth td { color: #cdd4ea; }
+  table.myth td b { color: var(--green); }
+
+  footer { text-align: center; color: #5b6482; font-size: .82rem; padding: 40px 0 60px; }
+  footer a { color: var(--blue); }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav class="series-nav">
+  <a href="index.html">シリーズ「LLMの仕組み」(目次)</a>
+  <a href="01-how-llm-works.html">① 推論編</a>
+  <a href="02-how-llm-learns.html">② 学習編</a>
+  <a href="03-how-llm-transformer.html">③ Transformer深掘り編</a>
+  <a href="04-how-llm-prompt.html">④ プロンプト編</a>
+  <a href="05-how-llm-limits.html">⑤ 限界と対策編</a>
+  <span class="current">⑥ 活用編(このページ)</span>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header id="hero">
+  <canvas id="heroCanvas"></canvas>
+  <div class="hero-inner">
+    <div class="kicker">VISUAL GUIDE — VOL.6(最終回)</div>
+    <h1>LLMを「部品」として<br>組み込む</h1>
+    <p>チャット画面はLLMの使い方の1つにすぎません。API・検索・道具・エージェント——アプリの中でLLMがどう働いているのか、裏側を見ていきます。</p>
+    <div class="scroll-hint">▼ スクロールして始める</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ §1 ============ -->
+  <section class="scene" id="sc1">
+    <div class="chapter">§1 — 裏側の形</div>
+    <h2>API:チャットの正体は「配列の往復」</h2>
+    <p>アプリからLLMを使うときの形は<strong>API</strong>と呼ばれる窓口です。仕組みは単純で、<em>これまでのメッセージの配列を送ると、続きのメッセージが1つ返ってくる</em>だけ。チャット画面の裏では、毎回この往復が起きています。Vol.4で学んだ「毎回、全文を読み直す」の実装がこれです。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:チャットの裏で送られている「messages配列」が育っていく様子</div>
+      <div class="api-grid">
+        <div class="api-col">
+          <div class="api-title">アプリが送る messages 配列</div>
+          <div class="msg-stack" id="msgStack"></div>
+        </div>
+      </div>
+      <div class="api-status" id="apiStatus"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>会話の状態を持っているのは<b>アプリ側</b>で、モデルは毎回白紙です。だからアプリは、過去ログの要約・削除・差し替えを自由にできます。「AIに記憶させる」機能の実体は、この配列の管理です。</div>
+  </section>
+
+  <!-- ============ §2 ============ -->
+  <section class="scene" id="sc2">
+    <div class="chapter">§2 — 部品化の第一歩</div>
+    <h2>構造化出力:プログラムが読める形で返させる</h2>
+    <p>アプリに組み込むなら、返事は人間向けの文章ではなく、<strong>プログラムが処理できる形式(JSONなど)</strong>が必要です。Vol.4の「出力形式の指定」を徹底すると、LLMは<em>文章生成機から「柔軟なデータ変換部品」に変わります</em>。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:レビュー文の分析を、2つの返し方で比較する</div>
+      <p style="font-size:.92rem;margin-bottom:12px;">入力:「<strong>味は最高だったが、配達が1時間も遅れた。もう頼まないかも。</strong>」</p>
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button id="freeBtn" class="ghost on" onclick="showStruct(false)">自由な文章で返す</button>
+        <button id="jsonBtn" class="ghost" onclick="showStruct(true)">JSON形式を指定する</button>
+      </div>
+      <div class="code-box" id="structBox"></div>
+      <p style="font-size:.88rem;color:var(--sub);margin-top:10px;" id="structNote"></p>
+    </div>
+    <div class="note"><b>注目ポイント:</b>JSONで返させれば、「否定的なレビューだけ抽出して担当者に通知」のような処理をプログラムで自動化できます。レビュー分析・問い合わせ分類・情報抽出など、実務アプリの大半はこの形で動いています。なお実務では、お願い(プロンプト)だけでなく、出力形式を機械的に強制するAPI機能(構造化出力やツール定義)も使われ、確実性が求められる場面ではそちらが定石です。</div>
+  </section>
+
+  <!-- ============ §3 ============ -->
+  <section class="scene" id="sc3">
+    <div class="chapter">§3 — 意味で探す</div>
+    <h2>埋め込み検索:キーワードではなく「意味の近さ」で見つける</h2>
+    <p>Vol.1の「意味の地図(埋め込み)」には、文章版もあります。文書と質問を同じ地図上の点に変換すれば、<em>言葉が一致しなくても、意味が近い文書を見つけられます</em>。RAG(Vol.5)の検索部分や、FAQの自動応答はこの仕組みです。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:質問を選ぶと、意味が近いFAQ文書が地図上で見つかる</div>
+      <div class="btn-row" style="justify-content:center;margin-bottom:12px;" id="queryBtns"></div>
+      <canvas id="embCanvas" class="viz-canvas" style="height:380px;"></canvas>
+      <div class="search-result" id="searchResult"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>「お金を返してほしい」という質問に「返金」という単語は含まれていませんが、意味の地図では返金FAQのすぐ近くに落ちます。キーワード検索との最大の違いがここです。</div>
+  </section>
+
+  <!-- ============ §4 ============ -->
+  <section class="scene" id="sc4">
+    <div class="chapter">§4 — 道具を持たせる</div>
+    <h2>ツール呼び出し:モデルは「お願いの文章」を書くだけ</h2>
+    <p>LLMは計算が苦手で、最新情報も知りません(Vol.5)。そこで<strong>ツール呼び出し</strong>という仕組みを使います。重要なのは、モデル自身は道具を動かせないこと。<em>「この道具をこう使いたい」という決まった形式のテキストを出力するだけ</em>で、実行するのはアプリ側です。結果は文脈に追記され、モデルはそれを読んで答えます。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 再生:「1234 × 5678 は?」の裏側で起きていること</div>
+      <div class="tool-log" id="toolLog"></div>
+      <div class="gen-status" id="toolStatus">「再生する」を押してください。</div>
+      <div class="btn-row">
+        <button id="toolBtn" onclick="toolPlay()">▶ 再生する</button>
+        <button class="ghost" onclick="toolReset()">リセット</button>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>Vol.1で学んだ「次トークン予測」は何も変わっていません。学習によって「電卓が必要な場面では、電卓を呼ぶ形式のテキストが自然な続きになる」ようになっただけです。仕組みは同じ、使い方が広がった——ここが美しい点ではなく、設計の要点です。</div>
+  </section>
+
+  <!-- ============ §5 ============ -->
+  <section class="scene" id="sc5">
+    <div class="chapter">§5 — 自律的に動かす</div>
+    <h2>エージェント:「考える→道具→観察」のループ</h2>
+    <p>ツール呼び出しを<strong>ループ</strong>にすると、エージェントになります。目標を与えると、モデルが「次に何をすべきか」を考え、道具を使い、結果を観察して、また考える——完了と判断するまで繰り返します。中身は今までと同じLLMで、<em>ループと道具を与えられただけ</em>です。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 再生:目標「明日の京都観光の計画を立てる」をエージェントが進める様子</div>
+      <svg id="agentSvg" class="loop-svg" viewBox="0 0 680 150"></svg>
+      <div class="tool-log" id="agentLog"></div>
+      <div class="gen-status" id="agentStatus">「実行する」を押してください。</div>
+      <div class="btn-row">
+        <button id="agentBtn" onclick="agentPlay()">▶ 実行する</button>
+        <button class="ghost" onclick="agentReset()">リセット</button>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>エージェントの信頼性は「1周あたりの正確さ × 周回数」で決まります。10ステップの作業では小さなミスも積み重なるため、<b>途中結果の確認や人間の承認ポイント</b>を挟む設計が実務では重要です。</div>
+  </section>
+
+  <!-- ============ §6 ============ -->
+  <section class="scene" id="sc6">
+    <div class="chapter">§6 — シリーズ総まとめ</div>
+    <h2>6巻の地図:すべては「次トークン予測」につながっている</h2>
+    <p>最後に、シリーズ全体を1枚の地図にまとめます。どの巻も、中心にあるのはVol.1の「次の言葉を確率で予測する」という1つの原理でした。</p>
+    <div class="panel">
+      <div class="panel-title">▶ シリーズマップ(クリックで各巻へ移動できます)</div>
+      <svg id="mapSvg" class="map-svg" viewBox="0 0 860 300"></svg>
+    </div>
+    <table class="myth">
+      <tr><th>「AIアプリ開発=チャット画面を作ること」</th>
+          <td>主流は<b>部品としての組み込み</b>。分類・抽出・変換・検索・エージェントなど、画面のない使い方が大半を占める。</td></tr>
+      <tr><th>「エージェントは特別な別のAI」</th>
+          <td>中身は同じLLM。<b>ループと道具と目標を与えた使い方の名前</b>にすぎない。だから限界(Vol.5)もそのまま引き継ぐ。</td></tr>
+      <tr><th>「LLMがあれば検索技術は不要」</th>
+          <td>逆で、<b>検索(埋め込み・RAG)と組み合わせて</b>はじめて信頼できる回答になる。記憶より「文脈に根拠を入れる」が定石。</td></tr>
+    </table>
+    <div class="note" style="margin-top:22px;"><b>今日のキーワード:</b>API / messages配列 / 構造化出力(JSON) / 埋め込み検索 / ツール呼び出し / エージェント</div>
+    <div class="note" style="margin-top:14px;"><b>シリーズ完結:</b>お疲れさまでした。ここまでの6巻で、LLMの原理(①②③)、使い方(④)、限界(⑤)、組み込み(⑥)が一通りつながりました。復習には、各巻の最後にある「よくある誤解と、正しい理解」の表(全6個)を読み返すのが手早い方法です。</div>
+  </section>
+
+</main>
+
+<footer>学習教材「LLMの仕組み」Vol.6 活用編(最終回) ｜ 図中の確率・数値はすべて教材用に作成したものです ｜ <a href="index.html">目次へ</a></footer>
+
+<script>
+/* ================================================================
+   共通ユーティリティ
+   ================================================================ */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const visible = {};
+const io = new IntersectionObserver(
+  es => es.forEach(e => visible[e.target.id] = e.isIntersecting),
+  { threshold: 0.2 }
+);
+document.querySelectorAll(".scene, #hero").forEach(s => io.observe(s));
+async function whenVisible(id) { while (!visible[id]) await sleep(250); }
+
+/* ================================================================
+   HERO:中心のLLMと周囲のアプリがパルスを交換
+   ================================================================ */
+(function heroHub() {
+  const cv = document.getElementById("heroCanvas");
+  const ctx = cv.getContext("2d");
+  let W, H, sats = [], pulses = [];
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = r.width; H = r.height;
+    sats = [];
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      sats.push({ ang: i / n * 6.28, sp: 0.00012 + Math.random() * 0.0001, r: Math.min(W, H) * (0.30 + (i % 3) * 0.06) });
+    }
+  }
+  fit();
+  window.addEventListener("resize", fit);
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible["hero"]) return;
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2;
+    // 中心コア
+    const glow = 0.5 + 0.5 * Math.sin(now / 800);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 46 + glow * 8);
+    g.addColorStop(0, "rgba(88,196,221,.5)");
+    g.addColorStop(1, "rgba(88,196,221,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, 46 + glow * 8, 0, 6.28); ctx.fill();
+    // 衛星と接続線
+    for (const s of sats) {
+      s.ang += s.sp * 16;
+      const x = cx + Math.cos(s.ang) * s.r;
+      const y = cy + Math.sin(s.ang) * s.r * 0.62;
+      ctx.strokeStyle = "rgba(88,196,221,.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
+      ctx.fillStyle = "rgba(199,146,234,.5)";
+      ctx.fillRect(x - 7, y - 7, 14, 14);
+      s.x = x; s.y = y;
+    }
+    // パルス
+    if (Math.random() < 0.08 && pulses.length < 12) {
+      pulses.push({ s: sats[Math.floor(Math.random() * sats.length)], t: 0, out: Math.random() < 0.5 });
+    }
+    pulses = pulses.filter(p => p.t <= 1);
+    for (const p of pulses) {
+      p.t += 0.02;
+      const k = p.out ? p.t : 1 - p.t;
+      const x = cx + (p.s.x - cx) * k, y = cy + (p.s.y - cy) * k;
+      ctx.fillStyle = p.out ? "rgba(111,224,168,.9)" : "rgba(255,211,90,.9)";
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 9;
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ================================================================
+   §1:messages配列の自動再生
+   ================================================================ */
+const API_SCRIPT = [
+  { role: "system", text: "あなたは旅行案内のアシスタントです。", note: "最初にシステムプロンプト(Vol.4)が置かれます。" },
+  { role: "user", text: "京都のおすすめは?", note: "ユーザーの発言が追加され、配列全体がAPIへ送られます。" },
+  { role: "assistant", text: "清水寺と嵐山が定番です。", note: "返ってきた応答も配列に追加されます。" },
+  { role: "user", text: "子ども連れでも楽しめる?", note: "2回目の質問。ここまでの全履歴を再び送ります。" },
+  { role: "assistant", text: "嵐山はモンキーパークがあり、お子さま連れに人気です。", note: "モデルは毎回、配列全体を読み直して答えています(Vol.4)。" },
+];
+const ROLE_LABEL = { system: "SYSTEM", user: "USER", assistant: "ASSISTANT" };
+
+(async function apiLoop() {
+  const stack = document.getElementById("msgStack");
+  const status = document.getElementById("apiStatus");
+  while (true) {
+    await whenVisible("sc1");
+    stack.innerHTML = "";
+    for (const m of API_SCRIPT) {
+      await whenVisible("sc1");
+      const div = document.createElement("div");
+      div.className = "msg " + m.role;
+      div.innerHTML = `<span class="role">${ROLE_LABEL[m.role]}</span>${m.text}`;
+      stack.appendChild(div);
+      status.textContent = m.note;
+      await sleep(2100);
+    }
+    status.textContent = "モデル側には何も残りません(履歴を保存するかどうかはアプリの設計しだい)。少ししたら最初から再生します…";
+    await sleep(3000);
+  }
+})();
+
+/* ================================================================
+   §2:構造化出力
+   ================================================================ */
+function showStruct(useJson) {
+  const box = document.getElementById("structBox");
+  const note = document.getElementById("structNote");
+  document.getElementById("jsonBtn").classList.toggle("on", useJson);
+  document.getElementById("freeBtn").classList.toggle("on", !useJson);
+  if (useJson) {
+    box.className = "code-box good";
+    box.innerHTML =
+`{
+  <span class="jkey">"食事の評価"</span>: <span class="jval">"肯定"</span>,
+  <span class="jkey">"配達の評価"</span>: <span class="jval">"否定"</span>,
+  <span class="jkey">"総合スコア"</span>: <span class="jval">2</span>,
+  <span class="jkey">"解約リスク"</span>: <span class="jval">"高"</span>,
+  <span class="jkey">"対応の要否"</span>: <span class="jval">true</span>
+}`;
+    note.textContent = "キーと型が決まっているため、プログラムがそのまま読み取れます。「解約リスク:高なら担当者に通知」のような自動化が可能です。";
+  } else {
+    box.className = "code-box";
+    box.textContent = "このレビューを拝見すると、お料理の味には大変ご満足いただけたようですね。一方で、配達の遅延についてはかなりご不満で、再注文をためらわれている様子がうかがえます。全体としてはやや否定的な印象です。";
+    note.textContent = "人間には読みやすい一方、プログラムから「結局スコアは何点か」「通知すべきか」を取り出すのは困難です。";
+  }
+}
+showStruct(false);
+
+/* ================================================================
+   §3:埋め込み検索
+   ================================================================ */
+const DOCS = [
+  { w: "送料はいくら?",        x: .16, y: .22, c: "#58c4dd" },
+  { w: "配達が届かない",        x: .26, y: .32, c: "#58c4dd" },
+  { w: "配送状況の追跡",        x: .12, y: .40, c: "#58c4dd" },
+  { w: "返品の手順",            x: .72, y: .20, c: "#6fe0a8" },
+  { w: "返金までの日数",        x: .84, y: .30, c: "#6fe0a8" },
+  { w: "商品の交換",            x: .70, y: .38, c: "#6fe0a8" },
+  { w: "パスワードを忘れた",    x: .24, y: .78, c: "#c792ea" },
+  { w: "退会の方法",            x: .38, y: .86, c: "#c792ea" },
+  { w: "メールアドレスの変更",  x: .14, y: .88, c: "#c792ea" },
+];
+const QUERIES = [
+  { w: "お金を返してほしい",       x: .80, y: .26 },
+  { w: "荷物がまだ来ない",         x: .22, y: .27 },
+  { w: "ログインできなくなった",   x: .27, y: .80 },
+];
+let embQuery = null;
+let embCtx, embW, embH;
+
+(function embInit() {
+  const cv = document.getElementById("embCanvas");
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    embCtx = cv.getContext("2d");
+    embCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    embW = r.width; embH = r.height;
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  const btns = document.getElementById("queryBtns");
+  QUERIES.forEach((q, i) => {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.textContent = "「" + q.w + "」";
+    b.onclick = () => selectQuery(i);
+    btns.appendChild(b);
+  });
+
+  function px(p) { return { x: p.x * (embW - 90) + 45, y: p.y * (embH - 60) + 22 }; }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible["sc3"]) return;
+    const ctx = embCtx;
+    ctx.clearRect(0, 0, embW, embH);
+    const pos = DOCS.map((d, i) => {
+      const b = px(d);
+      return { ...d, sx: b.x + Math.sin(now / 1500 + i * 1.9) * 3, sy: b.y + Math.cos(now / 1800 + i * 2.4) * 3 };
+    });
+    let hits = [];
+    if (embQuery !== null) {
+      const q = px(QUERIES[embQuery]);
+      hits = pos.map(p => ({ p, d: Math.hypot(p.sx - q.x, p.sy - q.y) }))
+        .sort((a, b) => a.d - b.d).slice(0, 3);
+      for (const { p } of hits) {
+        ctx.strokeStyle = "rgba(255,211,90,.5)";
+        ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(p.sx, p.sy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // クエリの星
+      ctx.fillStyle = "#ffd35a";
+      ctx.shadowColor = "#ffd35a"; ctx.shadowBlur = 16;
+      ctx.beginPath();
+      for (let k = 0; k < 10; k++) {
+        const ang = k * Math.PI / 5 - Math.PI / 2;
+        const rr = k % 2 === 0 ? 11 : 4.5;
+        const x = q.x + Math.cos(ang) * rr, y = q.y + Math.sin(ang) * rr;
+        k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ffd35a";
+      ctx.font = "bold 13px sans-serif";
+      ctx.fillText("質問:" + QUERIES[embQuery].w, q.x + 15, q.y + 4);
+    }
+    for (const p of pos) {
+      const hot = hits.some(h => h.p === p);
+      ctx.fillStyle = p.c;
+      ctx.shadowColor = p.c; ctx.shadowBlur = hot ? 15 : 6;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, hot ? 7.5 : 5, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = hot ? "#fff" : "rgba(232,236,248,.75)";
+      ctx.font = (hot ? "bold 13px" : "12px") + " sans-serif";
+      ctx.fillText(p.w, p.sx + 10, p.sy + 4);
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+
+function selectQuery(i) {
+  embQuery = i;
+  document.querySelectorAll("#queryBtns button").forEach((b, k) => b.classList.toggle("on", k === i));
+  // 上位3件の一覧(静的計算:キャンバスと同じ距離基準)
+  const q = QUERIES[i];
+  const hits = DOCS.map(d => ({ d, dist: Math.hypot(d.x - q.x, d.y - q.y) }))
+    .sort((a, b) => a.dist - b.dist).slice(0, 3);
+  document.getElementById("searchResult").innerHTML =
+    "<div style='color:var(--sub);font-size:.82rem;margin-bottom:4px;'>意味が近い順(この3件をRAGの材料として窓に入れます):</div>" +
+    hits.map((h, k) =>
+      `<div class="hit"><span class="rank">${k + 1}</span>FAQ「${h.d.w}」<span class="dist">距離 ${(h.dist * 10).toFixed(1)}</span></div>`
+    ).join("");
+}
+selectQuery(0);
+
+/* ================================================================
+   §4:ツール呼び出し
+   ================================================================ */
+const TOOL_SCRIPT = [
+  { cls: "u", actor: "ユーザー", html: "1234 × 5678 は?" },
+  { cls: "m", actor: "モデルの出力(テキスト)", html: '暗算では不正確になるため、電卓を使います:<br><code>{"tool": "電卓", "式": "1234 * 5678"}</code>' },
+  { cls: "a", actor: "アプリ側で実行", html: "電卓ツールを実行 → 結果 <code>7006652</code> を文脈に追記して、モデルを再度呼び出します。" },
+  { cls: "m", actor: "モデルの出力(最終回答)", html: "計算結果は <strong>7,006,652</strong> です。" },
+];
+let toolRunning = false;
+
+async function toolPlay() {
+  if (toolRunning) return;
+  toolRunning = true;
+  document.getElementById("toolBtn").disabled = true;
+  const log = document.getElementById("toolLog");
+  const status = document.getElementById("toolStatus");
+  log.innerHTML = "";
+  const notes = [
+    "質問が窓に入ります。",
+    "モデルは「道具を呼ぶ形式のテキスト」を出力しただけ。実行はしていません。",
+    "実行するのはアプリ側。結果が文脈に追記されます(Vol.4:窓に入れれば読める)。",
+    "追記された結果を読んで、最終回答が生成されました。",
+  ];
+  for (let i = 0; i < TOOL_SCRIPT.length; i++) {
+    const m = TOOL_SCRIPT[i];
+    const div = document.createElement("div");
+    div.className = "tl-line " + m.cls;
+    div.innerHTML = `<span class="actor">${m.actor}</span>${m.html}`;
+    log.appendChild(div);
+    status.textContent = notes[i];
+    await sleep(2300);
+  }
+  status.textContent = "再生が終わりました。モデルがしたのは「テキストを2回出力した」ことだけです。";
+  document.getElementById("toolBtn").disabled = false;
+  toolRunning = false;
+}
+function toolReset() {
+  if (toolRunning) return;
+  document.getElementById("toolLog").innerHTML = "";
+  document.getElementById("toolStatus").textContent = "「再生する」を押してください。";
+}
+
+/* ================================================================
+   §5:エージェントループ
+   ================================================================ */
+const AGENT_STAGES = ["① 考える", "② 道具を使う", "③ 結果を観察", "④ 完了判定"];
+function buildAgentSvg() {
+  const svg = document.getElementById("agentSvg");
+  const xs = [95, 258, 421, 584], y = 52, w = 140, h = 42;
+  let html = `<defs><marker id="aa" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#3a4266"/></marker></defs>`;
+  for (let i = 0; i < 3; i++) {
+    html += `<line class="loop-arrow" x1="${xs[i] + w / 2 + 4}" y1="${y}" x2="${xs[i + 1] - w / 2 - 8}" y2="${y}" marker-end="url(#aa)"/>`;
+  }
+  html += `<path class="loop-arrow" marker-end="url(#aa)"
+    d="M ${xs[3]} ${y + h / 2 + 4} C ${xs[3]} 128, ${xs[0]} 128, ${xs[0]} ${y + h / 2 + 10}"/>`;
+  html += `<text x="340" y="136" font-size="12" fill="#9aa3bf" text-anchor="middle">未完了なら、観察結果を文脈に足してもう一周</text>`;
+  AGENT_STAGES.forEach((s, i) => {
+    html += `<rect id="astage${i}" class="stage-box" x="${xs[i] - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="10"/>
+      <text id="astagelb${i}" class="stage-label" x="${xs[i]}" y="${y + 5}" text-anchor="middle">${s}</text>`;
+  });
+  svg.innerHTML = html;
+}
+buildAgentSvg();
+
+function agentStage(k) {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById("astage" + i).classList.toggle("active", i === k);
+    document.getElementById("astagelb" + i).classList.toggle("active", i === k);
+  }
+}
+
+const AGENT_SCRIPT = [
+  { stage: 0, cls: "m", actor: "考える", html: "屋外の観光地が多いため、まず天気を確認する必要があります。" },
+  { stage: 1, cls: "a", actor: "道具:天気検索", html: "明日の京都 → <code>晴れ、最高28℃</code>" },
+  { stage: 2, cls: "m", actor: "観察", html: "晴れなので屋外中心の計画が可能です。主要スポットの営業時間を調べます。" },
+  { stage: 1, cls: "a", actor: "道具:Web検索", html: "清水寺 6:00〜18:00 / 伏見稲荷 終日 / 嵐山エリア 店舗は10:00頃〜" },
+  { stage: 0, cls: "m", actor: "考える", html: "朝は早く開く清水寺から。移動時間を確認します。" },
+  { stage: 1, cls: "a", actor: "道具:経路検索", html: "清水寺 → 伏見稲荷:電車約20分 / 伏見稲荷 → 嵐山:約50分" },
+  { stage: 3, cls: "m", actor: "完了判定 → 出力", html: "<strong>計画完成:</strong>午前 清水寺(朝の空いている時間帯) → 昼 伏見稲荷 → 午後 嵐山で散策と夕食。移動は電車、雨具は不要です。" },
+];
+let agentRunning = false;
+
+async function agentPlay() {
+  if (agentRunning) return;
+  agentRunning = true;
+  document.getElementById("agentBtn").disabled = true;
+  const log = document.getElementById("agentLog");
+  const status = document.getElementById("agentStatus");
+  log.innerHTML = "";
+  for (const step of AGENT_SCRIPT) {
+    agentStage(step.stage);
+    const div = document.createElement("div");
+    div.className = "tl-line " + step.cls;
+    div.innerHTML = `<span class="actor">${step.actor}</span>${step.html}`;
+    log.appendChild(div);
+    status.textContent = "ループ位置:" + AGENT_STAGES[step.stage];
+    await sleep(2100);
+  }
+  agentStage(-1);
+  status.textContent = "目標達成と判断し、ループを抜けました。全7ステップ、人間の操作はゼロです。";
+  document.getElementById("agentBtn").disabled = false;
+  agentRunning = false;
+}
+function agentReset() {
+  if (agentRunning) return;
+  document.getElementById("agentLog").innerHTML = "";
+  agentStage(-1);
+  document.getElementById("agentStatus").textContent = "「実行する」を押してください。";
+}
+
+/* ================================================================
+   §6:シリーズマップ
+   ================================================================ */
+(function seriesMap() {
+  const NODES = [
+    { n: "①", t: "推論編", d: "次トークン予測", href: "01-how-llm-works.html", x: 430, y: 60 },
+    { n: "②", t: "学習編", d: "予測を鍛える", href: "02-how-llm-learns.html", x: 160, y: 60 },
+    { n: "③", t: "Transformer", d: "予測の中身", href: "03-how-llm-transformer.html", x: 160, y: 225 },
+    { n: "④", t: "プロンプト編", d: "予測を操る", href: "04-how-llm-prompt.html", x: 700, y: 60 },
+    { n: "⑤", t: "限界と対策編", d: "予測の弱点", href: "05-how-llm-limits.html", x: 700, y: 225 },
+    { n: "⑥", t: "活用編", d: "予測を組み込む", href: "06-how-llm-apps.html", x: 430, y: 225 },
+  ];
+  const EDGES = [[1, 0, "鍛えて作る"], [2, 0, "内部構造"], [0, 3, "文脈で操る"], [3, 5, ""], [0, 5, "部品化"], [4, 5, "弱点を道具で補う"], [0, 4, "副作用"]];
+  const svg = document.getElementById("mapSvg");
+  const W2 = 150, H2 = 66;
+  let html = `<defs><marker id="ma" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#3a4266"/></marker></defs>`;
+  for (const [a, b, lb] of EDGES) {
+    const A = NODES[a], B = NODES[b];
+    html += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="#2a3152" stroke-width="1.5" marker-end="url(#ma)"/>`;
+    if (lb) html += `<text x="${(A.x + B.x) / 2}" y="${(A.y + B.y) / 2 - 6}" font-size="10" fill="#5b6482" text-anchor="middle">${lb}</text>`;
+  }
+  for (const nd of NODES) {
+    html += `<a href="${nd.href}">
+      <rect class="map-node" x="${nd.x - W2 / 2}" y="${nd.y - H2 / 2}" width="${W2}" height="${H2}" rx="12"
+        ${nd.n === "①" ? 'style="stroke:#ffd35a;fill:rgba(255,211,90,.08)"' : ""}/>
+      <text class="map-num" x="${nd.x - W2 / 2 + 12}" y="${nd.y - 8}">${nd.n}</text>
+      <text class="map-t" x="${nd.x - W2 / 2 + 38}" y="${nd.y - 8}">${nd.t}</text>
+      <text class="map-d" x="${nd.x - W2 / 2 + 12}" y="${nd.y + 16}">${nd.d}</text>
+    </a>`;
+  }
+  svg.innerHTML = html;
+})();
+
+/* ================================================================
+   スクロール進捗バー
+   ================================================================ */
+window.addEventListener("scroll", () => {
+  const p = window.scrollY / (document.body.scrollHeight - innerHeight);
+  document.getElementById("progress").style.width = (p * 100) + "%";
+}, { passive: true });
+</script>
+</body>
+</html>

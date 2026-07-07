@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMの仕組み Vol.4 — プロンプト編:AIへの伝え方</title>
+<style>
+  :root {
+    --bg: #0b0e1c;
+    --panel: #12172e;
+    --panel2: #0e1326;
+    --ink: #e8ecf8;
+    --sub: #9aa3bf;
+    --blue: #58c4dd;
+    --deep-blue: #2f7ea8;
+    --yellow: #ffd35a;
+    --green: #6fe0a8;
+    --red: #ff7b72;
+    --purple: #c792ea;
+    --line: #232a4d;
+    --mono: "SFMono-Regular", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.9;
+    overflow-x: hidden;
+  }
+  #progress {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--yellow));
+    z-index: 99;
+  }
+  .series-nav {
+    display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center;
+    padding: 12px 16px; font-size: .85rem;
+    background: rgba(18,23,46,.8); border-bottom: 1px solid var(--line);
+  }
+  .series-nav a { color: var(--blue); text-decoration: none; }
+  .series-nav a:hover { text-decoration: underline; }
+  .series-nav .current { color: var(--yellow); font-weight: 700; }
+  .series-nav .soon { color: #5b6482; }
+
+  /* ---------- hero ---------- */
+  #hero {
+    position: relative;
+    min-height: 74vh;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  #heroCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-inner { position: relative; z-index: 1; padding: 40px 20px; }
+  .hero-inner .kicker { color: var(--yellow); font-weight: 700; letter-spacing: .3em; font-size: .85rem; }
+  .hero-inner h1 {
+    font-size: clamp(1.7rem, 5vw, 3rem);
+    margin: 14px 0 18px;
+    text-shadow: 0 0 30px rgba(88,196,221,.45);
+  }
+  .hero-inner p { color: var(--sub); max-width: 600px; margin: 0 auto; }
+  .hero-inner .scroll-hint { margin-top: 46px; color: var(--blue); font-size: .85rem; animation: bob 2s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0);} 50% { transform: translateY(8px);} }
+
+  /* ---------- scenes ---------- */
+  main { max-width: 900px; margin: 0 auto; padding: 0 18px 100px; }
+  .scene { margin-top: 90px; }
+  .chapter { color: var(--yellow); font-weight: 700; font-size: .9rem; letter-spacing: .2em; }
+  .scene h2 {
+    font-size: clamp(1.3rem, 3.4vw, 1.7rem);
+    margin: 8px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--line);
+  }
+  .scene > p { color: #c6cde3; max-width: 760px; }
+  .scene > p + p { margin-top: 8px; }
+  .scene em { font-style: normal; color: var(--yellow); font-weight: 700; }
+  .scene strong { color: var(--blue); }
+
+  .panel {
+    position: relative;
+    background:
+      linear-gradient(rgba(88,196,221,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(88,196,221,.045) 1px, transparent 1px),
+      var(--panel);
+    background-size: 26px 26px, 26px 26px, auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    margin-top: 22px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.35);
+  }
+  .panel-title { font-size: .78rem; font-weight: 700; color: var(--purple); letter-spacing: .15em; margin-bottom: 14px; }
+  .note {
+    margin-top: 16px; padding: 12px 16px;
+    background: rgba(255,211,90,.07);
+    border-left: 3px solid var(--yellow);
+    border-radius: 6px;
+    font-size: .92rem; color: #d9dcef;
+  }
+  .note b { color: var(--yellow); }
+
+  button {
+    font-family: inherit; font-size: .92rem; font-weight: 700;
+    padding: 9px 20px; border-radius: 9px; cursor: pointer;
+    background: var(--blue); color: #06202b; border: none;
+    transition: transform .12s, box-shadow .12s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(88,196,221,.4); }
+  button:disabled { background: #3a4266; color: #8b93b5; cursor: default; transform: none; box-shadow: none; }
+  button.ghost { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+  button.on { background: var(--yellow); color: #3a2c00; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  /* ---------- bar chart ---------- */
+  .bchart .brow { display: flex; align-items: center; gap: 10px; margin: 7px 0; transition: opacity .4s; }
+  .bchart .blabel {
+    width: 128px; flex-shrink: 0; text-align: right;
+    font-family: var(--mono); font-size: .95rem; white-space: nowrap; overflow: hidden;
+  }
+  .bchart .btrack { flex: 1; height: 26px; background: rgba(255,255,255,.05); border-radius: 6px; overflow: hidden; position: relative; }
+  .bchart .bfill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--deep-blue), var(--blue));
+    border-radius: 6px;
+    transition: width .65s cubic-bezier(.25,.9,.3,1), background .3s;
+    box-shadow: 0 0 14px rgba(88,196,221,.25);
+  }
+  .bchart .brow.winner .bfill {
+    background: linear-gradient(90deg, #2f9e6e, var(--green));
+    box-shadow: 0 0 18px rgba(111,224,168,.5);
+  }
+  .bchart .bpct { position: absolute; right: 9px; top: 0; line-height: 26px; font-size: .74rem; font-weight: 700; color: #eaf7ff; }
+
+  /* ---------- §1 prompt steering ---------- */
+  .prompt-line {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 14px 18px; font-size: 1.05rem; min-height: 3.2em; margin-bottom: 14px;
+  }
+  .prompt-line .added {
+    background: rgba(255,211,90,.16); border-radius: 6px; padding: 1px 6px;
+    color: var(--yellow); font-weight: 700;
+    animation: tokIn .5s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  @keyframes tokIn { from { transform: translateY(10px) scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+  .steer-note { text-align: center; font-size: .92rem; color: var(--blue); font-weight: 700; min-height: 2em; margin-top: 10px; }
+  .step-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px; }
+
+  /* ---------- §2 context window ---------- */
+  .chat-strip { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; min-height: 60px; }
+  .bubble {
+    max-width: 78%; padding: 9px 14px; border-radius: 12px; font-size: .92rem;
+    animation: tokIn .4s ease both; position: relative; transition: all .5s;
+  }
+  .bubble.user { align-self: flex-end; background: rgba(88,196,221,.14); border: 1.5px solid var(--deep-blue); border-bottom-right-radius: 3px; }
+  .bubble.ai { align-self: flex-start; background: var(--panel2); border: 1.5px solid var(--line); border-bottom-left-radius: 3px; }
+  .bubble .tok { font-size: .7rem; color: var(--sub); margin-left: 8px; font-family: var(--mono); }
+  .bubble.forgotten { opacity: .3; filter: grayscale(1); border-style: dashed; text-decoration: line-through; }
+  .bubble.forgotten::after {
+    content: "窓の外(参照不可)"; text-decoration: none;
+    position: absolute; right: 8px; top: -9px;
+    font-size: .65rem; color: var(--red); background: var(--bg); padding: 0 6px; border-radius: 4px;
+  }
+  .win-meter { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+  .win-track { flex: 1; height: 14px; background: rgba(255,255,255,.06); border-radius: 7px; overflow: hidden; }
+  .win-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--deep-blue), var(--blue)); border-radius: 7px; transition: width .5s, background .5s; }
+  .win-fill.full { background: linear-gradient(90deg, #a8404a, var(--red)); }
+  .win-label { font-family: var(--mono); font-size: .85rem; color: var(--sub); white-space: nowrap; }
+  .cw-status { font-size: .9rem; min-height: 2.6em; margin-top: 10px; color: var(--sub); }
+  .cw-status b { color: var(--red); }
+
+  /* ---------- §3 system prompt ---------- */
+  .sys-card {
+    background: rgba(199,146,234,.09); border: 1.5px dashed var(--purple); border-radius: 10px;
+    padding: 12px 16px; font-size: .9rem; margin-bottom: 12px;
+    transition: all .4s;
+  }
+  .sys-card .tag { font-size: .72rem; font-weight: 700; color: var(--purple); letter-spacing: .1em; }
+  .sys-card.hidden-card { opacity: 0; filter: blur(6px); pointer-events: none; }
+  .sys-hint { font-size: .8rem; color: var(--sub); margin-bottom: 12px; }
+
+  /* ---------- §4 few-shot ---------- */
+  .fs-prompt {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 14px 18px; font-family: var(--mono); font-size: .98rem; line-height: 2; margin-bottom: 14px;
+  }
+  .fs-prompt .ex { color: var(--green); animation: tokIn .5s ease both; display: block; }
+  .fs-prompt .q { color: var(--yellow); font-weight: 700; display: block; }
+  .fs-count { font-size: .88rem; color: var(--sub); margin-top: 8px; min-height: 1.8em; }
+
+  /* ---------- §5 builder ---------- */
+  .chk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .chk {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; cursor: pointer; transition: border-color .2s, box-shadow .2s;
+    font-size: .9rem; user-select: none;
+  }
+  .chk:hover { border-color: var(--blue); }
+  .chk.on { border-color: var(--yellow); box-shadow: 0 0 14px rgba(255,211,90,.25); }
+  .chk input { margin-top: 6px; accent-color: var(--yellow); }
+  .chk .t { font-weight: 700; color: var(--ink); }
+  .chk .d { color: var(--sub); font-size: .8rem; line-height: 1.6; }
+  .built-prompt {
+    background: var(--panel2); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 14px 18px; font-size: .95rem; line-height: 2; margin-bottom: 12px; min-height: 3em;
+  }
+  .built-prompt .p-part { display: block; animation: tokIn .4s ease both; }
+  .built-prompt .p-role { color: var(--purple); }
+  .built-prompt .p-cond { color: var(--blue); }
+  .built-prompt .p-ex { color: var(--green); }
+  .built-prompt .p-fmt { color: var(--yellow); }
+  .out-box {
+    background: rgba(111,224,168,.06); border: 1.5px solid rgba(111,224,168,.35); border-radius: 10px;
+    padding: 14px 18px; font-size: .93rem; line-height: 1.9; white-space: pre-line;
+  }
+  .quality-row { display: flex; align-items: center; gap: 12px; margin: 12px 0 8px; }
+  .q-track { flex: 1; height: 16px; background: rgba(255,255,255,.06); border-radius: 8px; overflow: hidden; }
+  .q-fill { height: 100%; width: 0; border-radius: 8px; transition: width .6s, background .6s; }
+  .q-label { font-size: .85rem; color: var(--sub); white-space: nowrap; }
+
+  /* ---------- summary ---------- */
+  table.myth { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .92rem; }
+  table.myth th, table.myth td { border: 1px solid var(--line); padding: 11px 14px; text-align: left; vertical-align: top; }
+  table.myth th { background: rgba(255,123,114,.08); color: var(--red); width: 40%; font-weight: 600; }
+  table.myth td { color: #cdd4ea; }
+  table.myth td b { color: var(--green); }
+
+  footer { text-align: center; color: #5b6482; font-size: .82rem; padding: 40px 0 60px; }
+  footer a { color: var(--blue); }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<nav class="series-nav">
+  <a href="index.html">シリーズ「LLMの仕組み」(目次)</a>
+  <a href="01-how-llm-works.html">① 推論編</a>
+  <a href="02-how-llm-learns.html">② 学習編</a>
+  <a href="03-how-llm-transformer.html">③ Transformer深掘り編</a>
+  <span class="current">④ プロンプト編(このページ)</span>
+  <a href="05-how-llm-limits.html">⑤ 限界と対策編</a>
+  <a href="06-how-llm-apps.html">⑥ 活用編</a>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header id="hero">
+  <canvas id="heroCanvas"></canvas>
+  <div class="hero-inner">
+    <div class="kicker">VISUAL GUIDE — VOL.4</div>
+    <h1>プロンプト:<br>AIへの伝え方の科学</h1>
+    <p>同じ質問でも、聞き方しだいで答えは大きく変わります。なぜ変わるのか、どう伝えれば望む答えに近づくのか——仕組みから理解していきます。</p>
+    <div class="scroll-hint">▼ スクロールして始める</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ §1 ============ -->
+  <section class="scene" id="sc1">
+    <div class="chapter">§1 — プロンプトの正体</div>
+    <h2>プロンプトは「確率分布のハンドル」</h2>
+    <p>Vol.1で学んだとおり、LLMは「ここまでの文章」から次のトークンの確率を計算します。つまり<em>プロンプトを変えることは、この確率分布を動かすこと</em>です。指示や役割を書き足すたびに、候補が絞り込まれていく様子を見てみましょう。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 自動再生:プロンプトに条件を足すと、次トークンの分布が動く</div>
+      <div class="step-chips" id="steerChips"></div>
+      <div class="prompt-line" id="steerPrompt"></div>
+      <div class="bchart" id="steerBars"></div>
+      <div class="steer-note" id="steerNote"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>モデルの賢さ(重み)は一切変わっていません。変わったのは<b>入力の文脈だけ</b>です。プロンプトの工夫が効く理由は、この「分布の絞り込み」にあります。</div>
+  </section>
+
+  <!-- ============ §2 ============ -->
+  <section class="scene" id="sc2">
+    <div class="chapter">§2 — 記憶の正体</div>
+    <h2>コンテキストウィンドウ:AIの「机の広さ」</h2>
+    <p>LLMは会話を「記憶」していません。毎回、<em>コンテキストウィンドウ(文脈の窓)に入っている全文を読み直して</em>、次の応答を作っています。窓の大きさには上限があり、あふれた古い内容は<strong>参照できなくなります</strong>。長い会話でAIが前の話を忘れるのはこのためです。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:会話を進めて、窓から情報があふれる瞬間を観察する(窓サイズ45トークン)</div>
+      <div class="win-meter">
+        <span class="win-label">窓の使用量</span>
+        <div class="win-track"><div class="win-fill" id="winFill"></div></div>
+        <span class="win-label" id="winCount">0 / 45</span>
+      </div>
+      <div class="chat-strip" id="chatStrip"></div>
+      <div class="cw-status" id="cwStatus">「会話を進める」を押してください。</div>
+      <div class="btn-row">
+        <button id="cwBtn" onclick="cwNext()">▶ 会話を進める</button>
+        <button class="ghost" onclick="cwReset()">最初から</button>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>最後の質問の時点で、名前を伝えたメッセージは窓の外にあります。モデルは「忘れた」のではなく、<b>そもそも読める場所にない</b>のです。大事な情報は会話の後半でもう一度伝える、という実践的な対策につながります。</div>
+  </section>
+
+  <!-- ============ §3 ============ -->
+  <section class="scene" id="sc3">
+    <div class="chapter">§3 — 見えない指示</div>
+    <h2>システムプロンプト:会話の前に置かれた台本</h2>
+    <p>ChatGPTやClaudeとの会話には、ユーザーには見えない<strong>システムプロンプト</strong>が最初に置かれています。「あなたは親切なアシスタントです」といった指示文で、AIの口調・性格・ルールはここで決まります。同じ質問でも、この台本しだいで答えは一変します。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:システムプロンプトを切り替えて、同じ質問への答えの変化を見る</div>
+      <div class="btn-row" style="justify-content:center;margin-bottom:14px;" id="sysBtns"></div>
+      <p class="sys-hint">※ 紫の点線枠がシステムプロンプト。実際のチャット画面では表示されません。</p>
+      <div class="sys-card" id="sysCard"><span class="tag">SYSTEM(ユーザーには見えない)</span><div id="sysText"></div></div>
+      <div class="chat-strip">
+        <div class="bubble user">今日の天気はどうですか?</div>
+        <div class="bubble ai" id="sysAnswer"></div>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>「AIに性格がある」ように見えるのは、多くの場合この見えない指示文の効果です。§1で見た「分布のハンドル」を、サービス提供者が最初に握っている、と言い換えることもできます。</div>
+  </section>
+
+  <!-- ============ §4 ============ -->
+  <section class="scene" id="sc4">
+    <div class="chapter">§4 — 例の力</div>
+    <h2>文脈内学習:例を見せるだけで振る舞いが変わる</h2>
+    <p>LLMには不思議な性質があります。プロンプトの中に<em>お手本(例)をいくつか書くだけで、その形式を真似はじめる</em>のです。これを<strong>文脈内学習(Few-shot学習)</strong>と呼びます。Vol.2で学んだ「重みの更新」は一切起きていないのに、振る舞いだけが変わります。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:例を追加して、答えの確信度が上がっていく様子を見る</div>
+      <div class="fs-prompt" id="fsPrompt"></div>
+      <div class="bchart" id="fsBars"></div>
+      <p class="fs-count" id="fsCount"></p>
+      <div class="btn-row">
+        <button id="fsBtn" onclick="fsAdd()">+ 例を1つ追加する</button>
+        <button class="ghost" onclick="fsReset()">リセット</button>
+      </div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>例が0個のときは「翻訳してほしいのか、説明してほしいのか」が曖昧で、分布が割れています。例が増えるほど「英単語に変換するタスクだ」という解釈に分布が集中していきます。</div>
+  </section>
+
+  <!-- ============ §5 ============ -->
+  <section class="scene" id="sc5">
+    <div class="chapter">§5 — 実践</div>
+    <h2>良いプロンプトの4要素を組み立てる</h2>
+    <p>ここまでの仕組みを踏まえると、効果的な指示の型が見えてきます。<strong>役割・具体的な条件・例・出力形式</strong>の4要素です。チェックを入れながら、出力の変化を確認してみましょう。</p>
+    <div class="panel">
+      <div class="panel-title">▶ 体験:要素を足すほど、出力がどう変わるか(題材:朝食の提案)</div>
+      <div class="chk-grid" id="chkGrid"></div>
+      <div class="built-prompt" id="builtPrompt"></div>
+      <div class="quality-row">
+        <span class="q-label">出力の実用度</span>
+        <div class="q-track"><div class="q-fill" id="qFill"></div></div>
+        <span class="q-label" id="qText"></span>
+      </div>
+      <div class="out-box" id="outBox"></div>
+    </div>
+    <div class="note"><b>注目ポイント:</b>4要素はどれも§1〜§4の応用です。役割=分布のハンドル、条件=絞り込み、例=文脈内学習、形式指定=出力パターンの誘導。「魔法の呪文」ではなく、<b>仕組みに沿った情報の渡し方</b>だと理解すると応用が利きます。</div>
+  </section>
+
+  <!-- ============ §6 ============ -->
+  <section class="scene" id="sc6">
+    <div class="chapter">§6 — まとめ</div>
+    <h2>よくある誤解と、正しい理解</h2>
+    <table class="myth">
+      <tr><th>「AIは会話の内容を記憶している」</th>
+          <td>毎回、<b>窓の中の全文を読み直している</b>だけで、モデルの重みには何も残らない。ただし履歴や「メモリ」機能として<b>アプリ側が保存する</b>ことはある(Vol.6)。</td></tr>
+      <tr><th>「プロンプトの工夫でAIが賢くなる」</th>
+          <td>賢さ(重み)は不変。変わるのは<b>確率分布の絞り込まれ方</b>。持っている能力を引き出しやすくしているだけ。</td></tr>
+      <tr><th>「例を見せて学習させた」</th>
+          <td>重みは一切更新されていない。<b>文脈内での一時的な適応</b>(文脈内学習)であり、会話が終われば消える。</td></tr>
+      <tr><th>「AIの性格は生まれつき」</th>
+          <td>口調やルールの多くは<b>見えないシステムプロンプト</b>で決められている。台本が変われば同じモデルでも別人のようになる。</td></tr>
+    </table>
+    <div class="note" style="margin-top:22px;"><b>今日のキーワード:</b>プロンプト / コンテキストウィンドウ / ステートレス / システムプロンプト / 文脈内学習(Few-shot) / 出力形式の指定</div>
+  </section>
+
+</main>
+
+<footer>学習教材「LLMの仕組み」Vol.4 プロンプト編 ｜ 図中の確率・数値はすべて教材用に作成したものです ｜ <a href="index.html">目次へ</a></footer>
+
+<script>
+/* ================================================================
+   共通ユーティリティ
+   ================================================================ */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const visible = {};
+const io = new IntersectionObserver(
+  es => es.forEach(e => visible[e.target.id] = e.isIntersecting),
+  { threshold: 0.2 }
+);
+document.querySelectorAll(".scene, #hero").forEach(s => io.observe(s));
+
+class BarChart {
+  constructor(container, n) {
+    this.rows = [];
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement("div");
+      row.className = "brow";
+      row.innerHTML = `<div class="blabel"></div>
+        <div style="flex:1"><div class="btrack"><div class="bfill"></div><span class="bpct"></span></div></div>`;
+      container.appendChild(row);
+      this.rows.push(row);
+    }
+  }
+  update(data, winnerLabel = null) {
+    const maxP = Math.max(...data.map(d => d[1]), 1e-9);
+    this.rows.forEach((row, i) => {
+      if (i < data.length) {
+        const [w, p] = data[i];
+        row.style.opacity = 1;
+        row.querySelector(".blabel").textContent = w;
+        row.querySelector(".bfill").style.width = (p / maxP * 100) + "%";
+        row.querySelector(".bpct").textContent = p >= 0.005 ? (p * 100).toFixed(1) + "%" : "≈0%";
+        row.classList.toggle("winner", w === winnerLabel);
+      } else {
+        row.style.opacity = 0;
+        row.classList.remove("winner");
+      }
+    });
+  }
+}
+
+/* ================================================================
+   HERO:プロンプトの言葉が分布を絞るファネル
+   ================================================================ */
+(function heroFunnel() {
+  const cv = document.getElementById("heroCanvas");
+  const ctx = cv.getContext("2d");
+  let W, H, parts = [];
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    W = r.width; H = r.height;
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  function spawn() {
+    parts.push({ t: 0, y0: Math.random(), sp: 0.003 + Math.random() * 0.004, hue: 185 + Math.random() * 50 });
+  }
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!visible["hero"]) return;
+    ctx.clearRect(0, 0, W, H);
+    // ファネルのガイド線
+    ctx.strokeStyle = "rgba(88,196,221,.12)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, H * 0.1); ctx.quadraticCurveTo(W * 0.55, H * 0.18, W, H * 0.42); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, H * 0.9); ctx.quadraticCurveTo(W * 0.55, H * 0.82, W, H * 0.58); ctx.stroke();
+    if (Math.random() < 0.25 && parts.length < 40) spawn();
+    parts = parts.filter(p => p.t <= 1);
+    for (const p of parts) {
+      p.t += p.sp;
+      const x = p.t * W;
+      // 左では散らばり、右では中央に収束
+      const spread = 0.4 * (1 - p.t * 0.85);
+      const y = H * (0.5 + (p.y0 - 0.5) * spread * 2);
+      const bright = p.t;
+      ctx.fillStyle = `hsla(${p.hue - bright * 130}, 85%, ${55 + bright * 12}%, ${0.4 + bright * 0.6})`;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 6 + bright * 8;
+      ctx.beginPath(); ctx.arc(x, y, 3 + bright * 2.5, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = "rgba(154,163,191,.55)";
+    ctx.font = "12px sans-serif";
+    ctx.fillText("あいまいな候補", 16, H * 0.5);
+    ctx.textAlign = "right";
+    ctx.fillText("プロンプトで絞られた候補", W - 16, H * 0.5);
+    ctx.textAlign = "left";
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ================================================================
+   §1:プロンプトによる分布の絞り込み
+   ================================================================ */
+const STEER_STEPS = [
+  { add: "(プロンプトなし)", full: [],
+    probs: [["今日", 0.08], ["私", 0.07], ["その", 0.06], ["これ", 0.05]],
+    note: "条件がないため、候補はほぼ横一線です" },
+  { add: "自己紹介してください。", full: ["自己紹介してください。"],
+    probs: [["はじめまして", 0.34], ["私は", 0.27], ["こんにちは", 0.18], ["どうも", 0.08]],
+    note: "タスクの指定で、候補が一気に絞られます" },
+  { add: "関西弁で", full: ["関西弁で", "自己紹介してください。"],
+    probs: [["まいど", 0.36], ["どうも", 0.22], ["おおきに", 0.14], ["はじめまして", 0.07]],
+    note: "文体の指定が、分布をさらに動かします" },
+  { add: "海賊になりきって、", full: ["海賊になりきって、", "関西弁で", "自己紹介してください。"],
+    probs: [["わしは", 0.42], ["まいど", 0.20], ["よお", 0.12], ["おおきに", 0.06]],
+    note: "役割の指定まで加わると、独特の候補が1位になります" },
+];
+let steerIdx = 0, steerTimer = null;
+const steerChart = new BarChart(document.getElementById("steerBars"), 4);
+
+function showSteer(i, highlightNew = true) {
+  steerIdx = i;
+  const s = STEER_STEPS[i];
+  const el = document.getElementById("steerPrompt");
+  if (s.full.length === 0) {
+    el.innerHTML = '<span style="color:var(--sub)">(プロンプトなし——モデルは白紙の状態から次の語を予測)</span>';
+  } else {
+    el.innerHTML = s.full.map((part, k) =>
+      (highlightNew && k === 0) ? `<span class="added">${part}</span>` : part
+    ).join("") + ' <span style="color:var(--sub)">→ 次の語は?</span>';
+  }
+  steerChart.update(s.probs, s.probs[0][0]);
+  document.getElementById("steerNote").textContent = s.note;
+  document.querySelectorAll("#steerChips button").forEach((b, k) => b.classList.toggle("on", k === i));
+}
+
+(function steerInit() {
+  const chips = document.getElementById("steerChips");
+  STEER_STEPS.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.textContent = "STEP " + i;
+    b.onclick = () => { showSteer(i); restartSteer(); };
+    chips.appendChild(b);
+  });
+  showSteer(0, false);
+  restartSteer();
+})();
+
+function restartSteer() {
+  clearInterval(steerTimer);
+  steerTimer = setInterval(() => {
+    if (!visible["sc1"]) return;
+    showSteer((steerIdx + 1) % STEER_STEPS.length);
+  }, 3600);
+}
+
+/* ================================================================
+   §2:コンテキストウィンドウ
+   ================================================================ */
+const CW_CAPACITY = 45;
+const CW_MSGS = [
+  { who: "user", text: "はじめまして。私は田中です。趣味は登山です。", tok: 9 },
+  { who: "ai",   text: "田中さん、はじめまして。よろしくお願いします。", tok: 7 },
+  { who: "user", text: "おすすめの山はありますか?", tok: 6 },
+  { who: "ai",   text: "初心者の方には高尾山がおすすめです。", tok: 8 },
+  { who: "user", text: "必要な装備を教えてください。", tok: 6 },
+  { who: "ai",   text: "歩きやすい靴と雨具がまず大切です。", tok: 8 },
+  { who: "user", text: "ところで、私の名前と趣味を覚えていますか?", tok: 10 },
+  { who: "ai",   text: "申し訳ありません。この会話の中には、お名前とご趣味の情報が見つかりませんでした…。", tok: 12, final: true },
+];
+let cwIdx = 0, cwActive = [];
+
+function cwUpdateMeter() {
+  const used = cwActive.reduce((s, m) => s + (m.forgotten ? 0 : m.tok), 0);
+  const fill = document.getElementById("winFill");
+  fill.style.width = Math.min(used / CW_CAPACITY * 100, 100) + "%";
+  fill.classList.toggle("full", used >= CW_CAPACITY * 0.9);
+  document.getElementById("winCount").textContent = used + " / " + CW_CAPACITY;
+  return used;
+}
+
+function cwNext() {
+  if (cwIdx >= CW_MSGS.length) return;
+  const m = CW_MSGS[cwIdx++];
+  const strip = document.getElementById("chatStrip");
+  const div = document.createElement("div");
+  div.className = "bubble " + m.who;
+  div.innerHTML = m.text + `<span class="tok">${m.tok}tok</span>`;
+  strip.appendChild(div);
+  const rec = { ...m, el: div, forgotten: false };
+  cwActive.push(rec);
+
+  const status = document.getElementById("cwStatus");
+  // 窓からあふれたら古い順に追い出す
+  let evicted = [];
+  while (cwActive.filter(x => !x.forgotten).reduce((s, x) => s + x.tok, 0) > CW_CAPACITY) {
+    const oldest = cwActive.find(x => !x.forgotten);
+    oldest.forgotten = true;
+    oldest.el.classList.add("forgotten");
+    evicted.push(oldest.text.slice(0, 12));
+  }
+  const used = cwUpdateMeter();
+  if (m.final) {
+    status.innerHTML = "<b>名前を伝えたメッセージはすでに窓の外。</b>モデルは「忘れた」のではなく、そもそも読める場所にない状態です。";
+    document.getElementById("cwBtn").disabled = true;
+  } else if (evicted.length) {
+    status.innerHTML = "⚠ 窓が満杯になったため、古いメッセージ「<b>" + evicted.join("」「") + "…</b>」が窓の外に押し出されました。";
+  } else {
+    status.textContent = "現在の使用量:" + used + "トークン。モデルは毎回、窓の中の全文を読み直して応答しています。";
+  }
+}
+
+function cwReset() {
+  cwIdx = 0; cwActive = [];
+  document.getElementById("chatStrip").innerHTML = "";
+  document.getElementById("cwStatus").textContent = "「会話を進める」を押してください。";
+  document.getElementById("cwBtn").disabled = false;
+  cwUpdateMeter();
+}
+cwUpdateMeter();
+
+/* ================================================================
+   §3:システムプロンプト
+   ================================================================ */
+const SYS_DEMOS = [
+  { name: "標準アシスタント",
+    sys: "あなたは丁寧で親切なアシスタントです。正確に、分かりやすく答えてください。",
+    ans: "申し訳ありません、リアルタイムの気象情報にはアクセスできません。お住まいの地域の天気予報サービスの確認をおすすめします。" },
+  { name: "俳句ボット",
+    sys: "あなたは何を聞かれても、必ず俳句(五・七・五)だけで答えるボットです。",
+    ans: "窓のそと/雲のゆくえに/聞いてみて" },
+  { name: "数学の先生",
+    sys: "あなたは数学の先生です。どんな話題も、数学の考え方に結びつけて説明します。",
+    ans: "天気そのものは分かりませんが、「降水確率30%」の意味を考えてみましょう。これは同じ気象条件が100回あったら約30回は雨が降る、という確率の考え方です。" },
+];
+let sysIdx = 0;
+
+function showSys(i) {
+  sysIdx = i;
+  document.getElementById("sysText").textContent = SYS_DEMOS[i].sys;
+  document.getElementById("sysAnswer").textContent = SYS_DEMOS[i].ans;
+  document.querySelectorAll("#sysBtns button").forEach((b, k) => b.classList.toggle("on", k === i));
+}
+(function sysInit() {
+  const wrap = document.getElementById("sysBtns");
+  SYS_DEMOS.forEach((d, i) => {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.textContent = d.name;
+    b.onclick = () => showSys(i);
+    wrap.appendChild(b);
+  });
+  showSys(0);
+})();
+
+/* ================================================================
+   §4:文脈内学習(Few-shot)
+   ================================================================ */
+const FS_EXAMPLES = ["いぬ → dog", "ねこ → cat", "とり → bird"];
+const FS_DISTS = [
+  [["apple", 0.26], ["赤い果物です", 0.24], ["りんごとは…", 0.20], ["Apple社", 0.10]],
+  [["apple", 0.55], ["赤い果物です", 0.14], ["りんごとは…", 0.10], ["Apple社", 0.05]],
+  [["apple", 0.82], ["赤い果物です", 0.06], ["りんごとは…", 0.04], ["Apple社", 0.02]],
+  [["apple", 0.93], ["赤い果物です", 0.02], ["りんごとは…", 0.02], ["Apple社", 0.01]],
+];
+const FS_NOTES = [
+  "例が0個:翻訳・説明・雑学など、タスクの解釈が割れています。",
+  "例が1個:「英語に変換するタスクらしい」と分布が動きました。",
+  "例が2個:パターンがほぼ確定。answerの形式も揃います。",
+  "例が3個:分布は「apple」にほぼ集中。重みは一切変わっていません。",
+];
+let fsN = 0;
+const fsChart = new BarChart(document.getElementById("fsBars"), 4);
+
+function fsRender() {
+  const el = document.getElementById("fsPrompt");
+  let html = "";
+  for (let i = 0; i < fsN; i++) html += `<span class="ex">${FS_EXAMPLES[i]}</span>`;
+  html += `<span class="q">りんご → ?</span>`;
+  el.innerHTML = html;
+  fsChart.update(FS_DISTS[fsN], FS_DISTS[fsN][0][0]);
+  document.getElementById("fsCount").textContent = FS_NOTES[fsN];
+  document.getElementById("fsBtn").disabled = fsN >= FS_EXAMPLES.length;
+}
+function fsAdd() { if (fsN < FS_EXAMPLES.length) { fsN++; fsRender(); } }
+function fsReset() { fsN = 0; fsRender(); }
+fsRender();
+
+/* ================================================================
+   §5:プロンプトビルダー
+   ================================================================ */
+const BUILD_PARTS = [
+  { key: "role", cls: "p-role", label: "役割を与える", desc: "「あなたはプロの栄養士です。」",
+    text: "あなたはプロの栄養士です。" },
+  { key: "cond", cls: "p-cond", label: "条件を具体的にする", desc: "数・制約・対象をはっきり書く",
+    text: "忙しい朝でも10分で作れる朝食の献立を、3つ提案してください。1食400kcal以内とします。" },
+  { key: "ex", cls: "p-ex", label: "例を示す", desc: "望む答えのお手本を1つ見せる",
+    text: "例:ヨーグルト+バナナ+ナッツ(約320kcal/調理5分)" },
+  { key: "fmt", cls: "p-fmt", label: "出力形式を指定する", desc: "箇条書き・表など形を決める",
+    text: "「料理名/カロリー/調理時間」の形式で、箇条書きで出力してください。" },
+];
+const BUILD_OUTPUTS = [
+  "朝食のアイデアですね。パン、ごはん、シリアル、フルーツなど、いろいろな選択肢があります。バランスよく食べることが大切です。",
+  "栄養士の視点でお答えします。たんぱく質と食物繊維を意識するとよいでしょう。たとえば卵料理やオートミールなどがおすすめです。",
+  "10分・400kcal以内という条件ですね。①オートミール粥と卵 ②トーストとチーズとトマト ③ヨーグルトとグラノーラとバナナ、の3つを提案します。",
+  "条件と例に沿って3つ提案します。①オートミール粥+ゆで卵(約350kcal/調理8分) ②チーズトースト+トマト(約380kcal/調理6分) ③ヨーグルト+グラノーラ+バナナ(約340kcal/調理3分)",
+  "・オートミール粥+ゆで卵/約350kcal/8分\n・チーズトースト+ミニトマト/約380kcal/6分\n・ヨーグルト+グラノーラ+バナナ/約340kcal/3分\n(いずれも400kcal以内・10分以内の条件を満たします)",
+];
+const BUILD_QUALITY = ["ぼんやり", "少し具体的", "使える提案", "条件を満たす", "そのまま使える"];
+const buildState = { role: false, cond: false, ex: false, fmt: false };
+
+function buildRender() {
+  const n = Object.values(buildState).filter(Boolean).length;
+  const bp = document.getElementById("builtPrompt");
+  let html = "";
+  for (const p of BUILD_PARTS) {
+    if (buildState[p.key]) html += `<span class="p-part ${p.cls}">${p.text}</span>`;
+  }
+  html += `<span class="p-part">朝食のアイデアを教えてください。</span>`;
+  bp.innerHTML = html;
+  const q = document.getElementById("qFill");
+  q.style.width = (n / 4 * 100 || 6) + "%";
+  q.style.background = ["#5b6482", "#2f7ea8", "#58c4dd", "#6fe0a8", "#ffd35a"][n];
+  document.getElementById("qText").textContent = BUILD_QUALITY[n];
+  document.getElementById("outBox").textContent = BUILD_OUTPUTS[n];
+  document.querySelectorAll("#chkGrid .chk").forEach((c, i) =>
+    c.classList.toggle("on", buildState[BUILD_PARTS[i].key]));
+}
+
+(function buildInit() {
+  const grid = document.getElementById("chkGrid");
+  BUILD_PARTS.forEach(p => {
+    const label = document.createElement("label");
+    label.className = "chk";
+    label.innerHTML = `<input type="checkbox"><div><div class="t">${p.label}</div><div class="d">${p.desc}</div></div>`;
+    label.querySelector("input").addEventListener("change", e => {
+      buildState[p.key] = e.target.checked;
+      buildRender();
+    });
+    grid.appendChild(label);
+  });
+  buildRender();
+})();
+
+/* ================================================================
+   スクロール進捗バー
+   ================================================================ */
+window.addEventListener("scroll", () => {
+  const p = window.scrollY / (document.body.scrollHeight - innerHeight);
+  document.getElementById("progress").style.width = (p * 100) + "%";
+}, { passive: true });
+</script>
+</body>
+</html>
